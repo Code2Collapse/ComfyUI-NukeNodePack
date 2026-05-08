@@ -34,6 +34,8 @@ _ECOSYSTEMS = (
     ".nukemax.nodes.deep",
     ".nukemax.nodes.shuffle",
     ".nukemax.nodes.nkscript",
+    # New (May 2026): Mocha Pro tracking / shape / lens / project import.
+    ".nukemax.nodes.mocha",
 )
 
 for mod_name in _ECOSYSTEMS:

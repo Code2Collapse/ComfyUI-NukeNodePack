@@ -18,6 +18,7 @@ from .light_rig import Light, LightRig
 from .audio_features import AudioFeatures
 from .flow_field import FlowField
 from .deep_image import DeepImage
+from .mocha_data import MochaTrack, MochaLens, MochaProject
 
 # Registered ComfyUI socket type names (uppercase string conventions).
 TYPE_NAMES = (
@@ -30,6 +31,9 @@ TYPE_NAMES = (
     "AUDIO_FEATURES",
     "FLOW_FIELD",
     "DEEP_IMAGE",
+    "MOCHA_TRACK",
+    "MOCHA_LENS",
+    "MOCHA_PROJECT",
 )
 
 __all__ = [
@@ -43,5 +47,8 @@ __all__ = [
     "AudioFeatures",
     "FlowField",
     "DeepImage",
+    "MochaTrack",
+    "MochaLens",
+    "MochaProject",
     "TYPE_NAMES",
 ]
