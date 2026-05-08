@@ -124,10 +124,24 @@ def parse_corner_pin(path: str, canvas_w: int, canvas_h: int, name: str = "mocha
 def _parse_corner_pin_nk(text: str, canvas_w: int, canvas_h: int, name: str) -> MochaTrack:
     pts: list[tuple[dict, dict]] = []
     # Find each `to1 { ... }` ... `to4 { ... }` block.
+    # Use a one-level nested-brace pattern so `{ {curve...} {curve...} }` is
+    # captured in full rather than stopping at the first `}`.
+    _NESTED1 = r"\{(?:[^{}]|\{[^{}]*\})*\}"
     for label in ("to1", "to2", "to3", "to4"):
-        m = re.search(rf"\b{label}\s*(\{{.*?\}})", text, flags=re.S)
+        m = re.search(rf"\b{label}\s*({_NESTED1})", text, flags=re.S)
         if not m:
-            raise ValueError(f"corner pin .nk missing {label}")
+            # Fallback: grab the two {curve} blocks after the label directly
+            ml = re.search(rf"\b{label}\b", text)
+            if not ml:
+                raise ValueError(f"corner pin .nk missing {label}")
+            window = text[ml.end():ml.end() + 800]
+            hits = list(_CURVE_RE.finditer(window))
+            if len(hits) >= 2:
+                xkf = _parse_nk_curve(hits[0].group(0))
+                ykf = _parse_nk_curve(hits[1].group(0))
+                pts.append((xkf, ykf))
+                continue
+            raise ValueError(f"corner pin .nk could not parse {label}")
         parsed = _parse_nk_2d_point(m.group(1))
         if parsed is None:
             raise ValueError(f"corner pin .nk could not parse {label}")
@@ -187,7 +201,8 @@ def parse_transform(path: str, canvas_w: int, canvas_h: int, name: str = "mocha_
 
 
 def _block_2d(text: str, key: str) -> tuple[dict, dict] | None:
-    m = re.search(rf"\b{key}\s*(\{{.*?\}})", text, flags=re.S)
+    _NESTED1 = r"\{(?:[^{}]|\{[^{}]*\})*\}"
+    m = re.search(rf"\b{key}\s*({_NESTED1})", text, flags=re.S)
     if not m:
         return None
     return _parse_nk_2d_point(m.group(1))
@@ -299,10 +314,13 @@ def parse_shape_nk(path: str, canvas_w: int, canvas_h: int) -> list[dict]:
     # Find sub-blocks. A vertex looks like `point { {curve ...} {curve ...} }`.
     # We grep for these directly; ordering inside the file is the polygon order.
     # Group vertices by their containing `Bezier` / `Shape` block.
-    block_re = re.compile(r"(Bezier|Shape)\s*\{(.*?)\n\}", flags=re.S)
-    point_re = re.compile(r"\bpoint\s*(\{.*?\}\s*\{.*?\})", flags=re.S)
+    # Match Bezier/Shape blocks, and also layer { points { } } style from Roto.
+    block_re = re.compile(r"(?:Bezier|Shape|layer)\s*\{(.*?)\n\s*\}", flags=re.S)
+    # point entries: point { {curve x} {curve y} } — one outer brace containing the two curves.
+    _NESTED1 = r"\{(?:[^{}]|\{[^{}]*\})*\}"
+    point_re = re.compile(rf"\bpoint\s*({_NESTED1})", flags=re.S)
     for bm in block_re.finditer(text):
-        body = bm.group(2)
+        body = bm.group(1)
         verts = []
         for pm in point_re.finditer(body):
             parsed = _parse_nk_2d_point(pm.group(1))
@@ -321,7 +339,7 @@ def parse_shape_nk(path: str, canvas_w: int, canvas_h: int) -> list[dict]:
             pts[:, i, 1] = _resolve_keyframes(yk, T)
         shapes.append({
             "points_per_frame": pts,
-            "name": bm.group(1).lower() + f"_{len(shapes)}",
+            "name": f"shape_{len(shapes)}",
             "closed": True,
             "canvas_h": canvas_h, "canvas_w": canvas_w,
         })
@@ -341,7 +359,8 @@ def parse_lens(path: str, canvas_w: int, canvas_h: int) -> MochaLens:
         s = line.strip()
         if not s or s.startswith("#"):
             continue
-        m = re.match(r"([A-Za-z_][\w_]*)\s*[:=]\s*(.+)", s)
+        # Accept both `key = value` and `key value` (space-separated)
+        m = re.match(r"([A-Za-z_][\w_]*)\s*(?:[:=]\s*)?(.+)", s)
         if not m:
             continue
         nums = _floats(m.group(2))
