@@ -116,7 +116,13 @@ def _frame_range(*kf_dicts: dict[int, float], default: int = 1) -> int:
 def parse_corner_pin(path: str, canvas_w: int, canvas_h: int, name: str = "mocha_cp") -> MochaTrack:
     """Auto-detect .nk vs .txt and return a MOCHA_TRACK (kind=corner_pin)."""
     text = _read_text(path)
-    if path.lower().endswith(".nk") or "CornerPin2D" in text:
+    return parse_corner_pin_text(text, canvas_w, canvas_h, name, hint_nk=path.lower().endswith(".nk"))
+
+
+def parse_corner_pin_text(text: str, canvas_w: int, canvas_h: int,
+                          name: str = "mocha_cp", hint_nk: bool = False) -> MochaTrack:
+    """Corner-pin parser that takes the export content directly as a string."""
+    if hint_nk or "CornerPin2D" in text:
         return _parse_corner_pin_nk(text, canvas_w, canvas_h, name)
     return _parse_corner_pin_ascii(text, canvas_w, canvas_h, name)
 
@@ -195,7 +201,13 @@ def _parse_corner_pin_ascii(text: str, canvas_w: int, canvas_h: int, name: str) 
 # -----------------------------------------------------------------------
 def parse_transform(path: str, canvas_w: int, canvas_h: int, name: str = "mocha_xf") -> MochaTrack:
     text = _read_text(path)
-    if path.lower().endswith(".nk") or "Transform" in text or "Tracker4" in text:
+    return parse_transform_text(text, canvas_w, canvas_h, name, hint_nk=path.lower().endswith(".nk"))
+
+
+def parse_transform_text(text: str, canvas_w: int, canvas_h: int,
+                         name: str = "mocha_xf", hint_nk: bool = False) -> MochaTrack:
+    """Transform parser that takes export content directly as a string."""
+    if hint_nk or "Transform" in text or "Tracker4" in text:
         return _parse_transform_nk(text, canvas_w, canvas_h, name)
     return _parse_transform_ascii(text, canvas_w, canvas_h, name)
 
@@ -309,7 +321,12 @@ def parse_shape_nk(path: str, canvas_w: int, canvas_h: int) -> list[dict]:
     Permissive parse: walks each `Bezier { ... }` / `Shape { ... }` sub-block
     inside a Roto/RotoPaint node and pulls per-vertex point curves.
     """
-    text = _read_text(path)
+    return parse_shape_text(_read_text(path), canvas_w, canvas_h)
+
+
+def parse_shape_text(text: str, canvas_w: int, canvas_h: int) -> list[dict]:
+    """Same as parse_shape_nk but reads the .nk content directly from a string
+    (clipboard paste / upload payload)."""
     shapes: list[dict] = []
     # Find sub-blocks. A vertex looks like `point { {curve ...} {curve ...} }`.
     # We grep for these directly; ordering inside the file is the polygon order.

@@ -12,7 +12,10 @@ Plus a generic "apply tracking" warp node usable for screen replacement.
 """
 from __future__ import annotations
 
+import logging
 import math
+import os
+import re
 from typing import Optional
 
 import torch
@@ -22,6 +25,100 @@ from ...types import MochaTrack, MochaLens, MochaProject, RotoShape
 from ...core import splines
 from ...utils.resilience import resilient
 from . import parsers as P
+
+log = logging.getLogger("nukemax.mocha")
+
+
+# -----------------------------------------------------------------------
+# Path helpers — accept absolute path, or a filename under ComfyUI/input
+# (subdir "mocha/" by default, where the upload route stores files).
+# -----------------------------------------------------------------------
+def _input_dir() -> str:
+    try:
+        import folder_paths  # type: ignore
+        return folder_paths.get_input_directory()
+    except Exception:
+        # Fallback: ComfyUI/input relative to working dir
+        return os.path.abspath(os.path.join(os.getcwd(), "input"))
+
+
+def _resolve_path(p: str) -> str:
+    """Resolve an input path: accept absolute, or a bare filename living under
+    ComfyUI/input/mocha/ (where the upload endpoint stores files)."""
+    if not p:
+        raise ValueError("file_path is empty — paste text or upload a .nk file")
+    if os.path.isabs(p) and os.path.exists(p):
+        return p
+    base = _input_dir()
+    for candidate in (
+        os.path.join(base, "mocha", p),
+        os.path.join(base, p),
+        os.path.abspath(p),
+    ):
+        if os.path.exists(candidate):
+            return candidate
+    raise FileNotFoundError(
+        f"could not locate {p!r}. Tried: ComfyUI/input/mocha/{p}, "
+        f"ComfyUI/input/{p}, and absolute path. Use the Upload .nk button or paste the file text."
+    )
+
+
+# -----------------------------------------------------------------------
+# Server route: POST /nukemax/mocha/upload
+#   multipart with `file` -> writes to ComfyUI/input/mocha/<safe_name>
+#   returns {"ok": True, "name": "...", "path": "/abs/path"}
+# -----------------------------------------------------------------------
+def _register_mocha_routes() -> None:
+    try:
+        from server import PromptServer  # type: ignore
+        from aiohttp import web  # type: ignore
+    except Exception:
+        return
+    routes = PromptServer.instance.routes
+
+    @routes.post("/nukemax/mocha/upload")
+    async def _upload(request):  # noqa: ANN001
+        try:
+            reader = await request.multipart()
+            field = await reader.next()
+            if field is None or field.name != "file":
+                return web.json_response({"ok": False, "error": "missing 'file' field"}, status=400)
+            raw_name = os.path.basename(field.filename or "mocha_upload.nk")
+            safe = re.sub(r"[^A-Za-z0-9._\-]+", "_", raw_name)[:120] or "mocha_upload.nk"
+            tgt_dir = os.path.join(_input_dir(), "mocha")
+            os.makedirs(tgt_dir, exist_ok=True)
+            tgt = os.path.join(tgt_dir, safe)
+            # Avoid overwriting: append _1, _2 ... if needed.
+            if os.path.exists(tgt):
+                stem, ext = os.path.splitext(safe)
+                i = 1
+                while os.path.exists(os.path.join(tgt_dir, f"{stem}_{i}{ext}")):
+                    i += 1
+                safe = f"{stem}_{i}{ext}"
+                tgt = os.path.join(tgt_dir, safe)
+            size = 0
+            with open(tgt, "wb") as f:
+                while True:
+                    chunk = await field.read_chunk(64 * 1024)
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    if size > 50 * 1024 * 1024:  # 50 MB cap
+                        f.close()
+                        try:
+                            os.remove(tgt)
+                        except OSError:
+                            pass
+                        return web.json_response(
+                            {"ok": False, "error": "file too large (max 50 MB)"}, status=413)
+                    f.write(chunk)
+            return web.json_response({"ok": True, "name": safe, "path": tgt, "bytes": size})
+        except Exception as e:  # noqa: BLE001
+            log.exception("mocha upload failed")
+            return web.json_response({"ok": False, "error": str(e)}, status=400)
+
+
+_register_mocha_routes()
 
 
 # -----------------------------------------------------------------------
@@ -167,7 +264,46 @@ class MochaImportCornerPin:
         }}
 
     def execute(self, file_path, canvas_width, canvas_height, name):
-        track = P.parse_corner_pin(file_path, int(canvas_width), int(canvas_height), name)
+        track = P.parse_corner_pin(_resolve_path(file_path), int(canvas_width), int(canvas_height), name)
+        return (track,)
+
+
+# -----------------------------------------------------------------------
+# 1b. Corner-pin — Paste / Upload variant
+# -----------------------------------------------------------------------
+@resilient
+class MochaImportCornerPinPaste:
+    DESCRIPTION = ("Same as Mocha Import Corner Pin, but accepts the .nk export pasted directly into the text box "
+                   "OR uploaded via the Upload .nk button (file is saved under ComfyUI/input/mocha/).")
+    CATEGORY = "NukeMax/Mocha"
+    FUNCTION = "execute"
+    RETURN_TYPES = ("MOCHA_TRACK",)
+    RETURN_NAMES = ("track",)
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "nk_text": ("STRING", {"multiline": True, "default": "",
+                                    "tooltip": "Paste the contents of the Mocha .nk corner-pin export here. "
+                                               "Or use the Upload .nk button to populate uploaded_file."}),
+            "uploaded_file": ("STRING", {"default": "",
+                                          "tooltip": "Filename inside ComfyUI/input/mocha/ — set automatically by the Upload .nk button."}),
+            "canvas_width": ("INT", {"default": 1920, "min": 1, "max": 16384}),
+            "canvas_height": ("INT", {"default": 1080, "min": 1, "max": 16384}),
+            "name": ("STRING", {"default": "mocha_cp"}),
+        }}
+
+    def execute(self, nk_text, uploaded_file, canvas_width, canvas_height, name):
+        text = (nk_text or "").strip()
+        hint_nk = False
+        if not text and uploaded_file:
+            path = _resolve_path(uploaded_file)
+            with open(path, "rb") as f:
+                text = f.read().decode("utf-8-sig", errors="replace")
+            hint_nk = path.lower().endswith(".nk")
+        if not text:
+            raise ValueError("paste the .nk corner-pin export into nk_text, or upload a file")
+        track = P.parse_corner_pin_text(text, int(canvas_width), int(canvas_height), name, hint_nk=hint_nk)
         return (track,)
 
 
@@ -192,7 +328,43 @@ class MochaImportTransform:
         }}
 
     def execute(self, file_path, canvas_width, canvas_height, name):
-        track = P.parse_transform(file_path, int(canvas_width), int(canvas_height), name)
+        track = P.parse_transform(_resolve_path(file_path), int(canvas_width), int(canvas_height), name)
+        return (track,)
+
+
+# -----------------------------------------------------------------------
+# 2b. Transform — Paste / Upload variant
+# -----------------------------------------------------------------------
+@resilient
+class MochaImportTransformPaste:
+    DESCRIPTION = ("Same as Mocha Import Transform, but accepts the .nk export pasted directly into the text box "
+                   "OR uploaded via the Upload .nk button.")
+    CATEGORY = "NukeMax/Mocha"
+    FUNCTION = "execute"
+    RETURN_TYPES = ("MOCHA_TRACK",)
+    RETURN_NAMES = ("track",)
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "nk_text": ("STRING", {"multiline": True, "default": ""}),
+            "uploaded_file": ("STRING", {"default": ""}),
+            "canvas_width": ("INT", {"default": 1920, "min": 1, "max": 16384}),
+            "canvas_height": ("INT", {"default": 1080, "min": 1, "max": 16384}),
+            "name": ("STRING", {"default": "mocha_xf"}),
+        }}
+
+    def execute(self, nk_text, uploaded_file, canvas_width, canvas_height, name):
+        text = (nk_text or "").strip()
+        hint_nk = False
+        if not text and uploaded_file:
+            path = _resolve_path(uploaded_file)
+            with open(path, "rb") as f:
+                text = f.read().decode("utf-8-sig", errors="replace")
+            hint_nk = path.lower().endswith(".nk")
+        if not text:
+            raise ValueError("paste the .nk transform export into nk_text, or upload a file")
+        track = P.parse_transform_text(text, int(canvas_width), int(canvas_height), name, hint_nk=hint_nk)
         return (track,)
 
 
@@ -267,28 +439,74 @@ class MochaImportShapesAsMask:
         }}
 
     def execute(self, file_path, canvas_width, canvas_height, feather_pixels, combine):
-        shapes = P.parse_shape_nk(file_path, int(canvas_width), int(canvas_height))
-        masks: list[torch.Tensor] = []
-        T_max = max(s["points_per_frame"].shape[0] for s in shapes)
-        for s in shapes:
-            poly = s["points_per_frame"]
-            if poly.shape[0] < T_max:
-                # Repeat last frame
-                pad = poly[-1:].expand(T_max - poly.shape[0], *poly.shape[1:])
-                poly = torch.cat([poly, pad], dim=0)
-            m = splines.rasterize_polygon_sdf(
-                poly, int(canvas_height), int(canvas_width),
-                feather=float(feather_pixels), closed=True,
-            )
-            masks.append(m)
-        if not masks:
-            return (torch.zeros(1, int(canvas_height), int(canvas_width)),)
-        stack = torch.stack(masks, dim=0)
-        if combine == "union":
-            combined = stack.amax(dim=0)
-        else:
-            combined = stack.amin(dim=0)
-        return (combined,)
+        shapes = P.parse_shape_nk(_resolve_path(file_path), int(canvas_width), int(canvas_height))
+        return _rasterize_shapes(shapes, int(canvas_height), int(canvas_width),
+                                  float(feather_pixels), combine)
+
+
+# -----------------------------------------------------------------------
+# 4b. Shape / roto — Paste / Upload variant (the one users actually want)
+# -----------------------------------------------------------------------
+@resilient
+class MochaImportShapesAsMaskPaste:
+    DESCRIPTION = ("Mocha shape → MASK. Paste the .nk shape export directly into nk_text, OR press "
+                   "Upload .nk to drop in a file (stored under ComfyUI/input/mocha/). No absolute paths needed.")
+    CATEGORY = "NukeMax/Mocha"
+    FUNCTION = "execute"
+    RETURN_TYPES = ("MASK", "INT", "INT")
+    RETURN_NAMES = ("mask", "frame_count", "shape_count")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "nk_text": ("STRING", {"multiline": True, "default": "",
+                                    "tooltip": "Paste the Mocha shape .nk export here. Or click Upload .nk."}),
+            "uploaded_file": ("STRING", {"default": "",
+                                          "tooltip": "Filename inside ComfyUI/input/mocha/ — set by Upload .nk button."}),
+            "canvas_width": ("INT", {"default": 1920, "min": 1, "max": 16384}),
+            "canvas_height": ("INT", {"default": 1080, "min": 1, "max": 16384}),
+            "feather_pixels": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 256.0, "step": 0.5}),
+            "combine": (("union", "intersect"), {"default": "union"}),
+        }}
+
+    def execute(self, nk_text, uploaded_file, canvas_width, canvas_height, feather_pixels, combine):
+        text = (nk_text or "").strip()
+        if not text and uploaded_file:
+            path = _resolve_path(uploaded_file)
+            with open(path, "rb") as f:
+                text = f.read().decode("utf-8-sig", errors="replace")
+        if not text:
+            raise ValueError("paste the .nk shape export into nk_text, or upload a file via the button")
+        shapes = P.parse_shape_text(text, int(canvas_width), int(canvas_height))
+        mask, = _rasterize_shapes(shapes, int(canvas_height), int(canvas_width),
+                                   float(feather_pixels), combine)
+        T = int(mask.shape[0])
+        return (mask, T, len(shapes))
+
+
+def _rasterize_shapes(shapes, canvas_h: int, canvas_w: int,
+                      feather_pixels: float, combine: str):
+    """Shared rasteriser for the file-path and paste variants."""
+    masks: list[torch.Tensor] = []
+    if not shapes:
+        return (torch.zeros(1, canvas_h, canvas_w),)
+    T_max = max(s["points_per_frame"].shape[0] for s in shapes)
+    for s in shapes:
+        poly = s["points_per_frame"]
+        if poly.shape[0] < T_max:
+            pad = poly[-1:].expand(T_max - poly.shape[0], *poly.shape[1:])
+            poly = torch.cat([poly, pad], dim=0)
+        m = splines.rasterize_polygon_sdf(
+            poly, canvas_h, canvas_w,
+            feather=feather_pixels, closed=True,
+        )
+        masks.append(m)
+    stack = torch.stack(masks, dim=0)
+    if combine == "union":
+        combined = stack.amax(dim=0)
+    else:
+        combined = stack.amin(dim=0)
+    return (combined,)
 
 
 # -----------------------------------------------------------------------
@@ -367,7 +585,7 @@ class MochaImportLens:
         }}
 
     def execute(self, file_path, canvas_width, canvas_height):
-        lens = P.parse_lens(file_path, int(canvas_width), int(canvas_height))
+        lens = P.parse_lens(_resolve_path(file_path), int(canvas_width), int(canvas_height))
         return (lens,)
 
 
@@ -459,7 +677,7 @@ class MochaImportProject:
         }}
 
     def execute(self, file_path):
-        proj = P.parse_mocha_project(file_path)
+        proj = P.parse_mocha_project(_resolve_path(file_path))
         lines = [
             f"canvas: {proj.canvas_w} x {proj.canvas_h}",
             f"fps: {proj.fps}",
@@ -477,23 +695,29 @@ class MochaImportProject:
 # Registration
 # -----------------------------------------------------------------------
 NODE_CLASS_MAPPINGS = {
-    "NukeMax_MochaImportCornerPin":     MochaImportCornerPin,
-    "NukeMax_MochaImportTransform":     MochaImportTransform,
-    "NukeMax_MochaApplyTracking":       MochaApplyTracking,
-    "NukeMax_MochaImportShapesAsMask":  MochaImportShapesAsMask,
-    "NukeMax_MochaInvertTrack":         MochaInvertTrack,
-    "NukeMax_MochaImportLens":          MochaImportLens,
-    "NukeMax_MochaApplyLens":           MochaApplyLens,
-    "NukeMax_MochaImportProject":       MochaImportProject,
+    "NukeMax_MochaImportCornerPin":         MochaImportCornerPin,
+    "NukeMax_MochaImportCornerPinPaste":    MochaImportCornerPinPaste,
+    "NukeMax_MochaImportTransform":         MochaImportTransform,
+    "NukeMax_MochaImportTransformPaste":    MochaImportTransformPaste,
+    "NukeMax_MochaApplyTracking":           MochaApplyTracking,
+    "NukeMax_MochaImportShapesAsMask":      MochaImportShapesAsMask,
+    "NukeMax_MochaImportShapesAsMaskPaste": MochaImportShapesAsMaskPaste,
+    "NukeMax_MochaInvertTrack":             MochaInvertTrack,
+    "NukeMax_MochaImportLens":              MochaImportLens,
+    "NukeMax_MochaApplyLens":               MochaApplyLens,
+    "NukeMax_MochaImportProject":           MochaImportProject,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "NukeMax_MochaImportCornerPin":     "Mocha — Import Corner Pin",
-    "NukeMax_MochaImportTransform":     "Mocha — Import Transform",
-    "NukeMax_MochaApplyTracking":       "Mocha — Apply Tracking (Warp)",
-    "NukeMax_MochaImportShapesAsMask":  "Mocha — Import Shapes → MASK",
-    "NukeMax_MochaInvertTrack":         "Mocha — Invert Track (Stabilize)",
-    "NukeMax_MochaImportLens":          "Mocha — Import Lens Calibration",
-    "NukeMax_MochaApplyLens":           "Mocha — Apply / Remove Lens Distortion",
-    "NukeMax_MochaImportProject":       "Mocha — Open .mocha Project",
+    "NukeMax_MochaImportCornerPin":         "Mocha — Import Corner Pin (file path)",
+    "NukeMax_MochaImportCornerPinPaste":    "Mocha — Import Corner Pin (paste / upload)",
+    "NukeMax_MochaImportTransform":         "Mocha — Import Transform (file path)",
+    "NukeMax_MochaImportTransformPaste":    "Mocha — Import Transform (paste / upload)",
+    "NukeMax_MochaApplyTracking":           "Mocha — Apply Tracking (Warp)",
+    "NukeMax_MochaImportShapesAsMask":      "Mocha — Import Shapes → MASK (file path)",
+    "NukeMax_MochaImportShapesAsMaskPaste": "Mocha — Import Shapes → MASK (paste / upload)",
+    "NukeMax_MochaInvertTrack":             "Mocha — Invert Track (Stabilize)",
+    "NukeMax_MochaImportLens":              "Mocha — Import Lens Calibration",
+    "NukeMax_MochaApplyLens":               "Mocha — Apply / Remove Lens Distortion",
+    "NukeMax_MochaImportProject":           "Mocha — Open .mocha Project",
 }
