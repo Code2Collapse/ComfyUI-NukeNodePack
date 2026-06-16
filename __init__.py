@@ -41,6 +41,8 @@ _ECOSYSTEMS = (
     ".nukemax.nodes.ocio",
     # New (Jun 2026): chroma keyer + premult math (no more Nuke round-trip to pull a matte).
     ".nukemax.nodes.keying",
+    # New (Jun 2026): everyday comp nodes — Reformat/Crop/ColorCorrect/Clamp/Saturation/Glow/Erode-Dilate.
+    ".nukemax.nodes.comp",
 )
 
 for mod_name in _ECOSYSTEMS:

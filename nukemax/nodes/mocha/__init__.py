@@ -692,9 +692,66 @@ class MochaImportProject:
 
 
 # -----------------------------------------------------------------------
+# Unified importer — "whatever method is there, it should accept".
+# One node: paste the .nk text OR upload a file; it auto-detects whether the
+# export is a CornerPin or a Transform/Tracker and returns a MOCHA_TRACK.
+# -----------------------------------------------------------------------
+@resilient
+class MochaImportAuto:
+    DESCRIPTION = ("One importer for Mocha/Nuke tracking exports: paste the .nk text OR upload a file. "
+                   "Auto-detects CornerPin2D vs Transform/Tracker4 and returns a MOCHA_TRACK.")
+    CATEGORY = "NukeMax/Mocha"
+    FUNCTION = "execute"
+    RETURN_TYPES = ("MOCHA_TRACK", "STRING")
+    RETURN_NAMES = ("track", "info")
+    OUTPUT_TOOLTIPS = ("Parsed tracking data.", "Which format was detected and parsed.")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "nk_text": ("STRING", {"multiline": True, "default": "",
+                                    "tooltip": "Paste a Mocha/Nuke CornerPin2D or Transform/Tracker4 .nk export here."}),
+            "uploaded_file": ("STRING", {"default": "",
+                                          "tooltip": "Filename under ComfyUI/input/mocha/ — set by the Upload .nk button."}),
+            "canvas_width": ("INT", {"default": 1920, "min": 1, "max": 16384}),
+            "canvas_height": ("INT", {"default": 1080, "min": 1, "max": 16384}),
+            "name": ("STRING", {"default": "mocha_track"}),
+        }}
+
+    def execute(self, nk_text, uploaded_file, canvas_width, canvas_height, name):
+        text = (nk_text or "").strip()
+        hint_nk = False
+        if not text and uploaded_file:
+            path = _resolve_path(uploaded_file)
+            with open(path, "rb") as f:
+                text = f.read().decode("utf-8-sig", errors="replace")
+            hint_nk = path.lower().endswith(".nk")
+        if not text:
+            raise ValueError("paste a Mocha/Nuke .nk export into nk_text, or upload a file via the button")
+        cw, ch = int(canvas_width), int(canvas_height)
+        is_cp = "CornerPin2D" in text
+        is_xf = ("Transform" in text) or ("Tracker4" in text)
+        # CornerPin wins if both markers appear (Mocha exports sometimes wrap both).
+        if is_cp:
+            track = P.parse_corner_pin_text(text, cw, ch, name, hint_nk=True)
+            return (track, "Detected CornerPin2D → MOCHA_TRACK (corner-pin).")
+        if is_xf:
+            track = P.parse_transform_text(text, cw, ch, name, hint_nk=True)
+            return (track, "Detected Transform/Tracker4 → MOCHA_TRACK (transform).")
+        # Last resort: try corner-pin then transform, surfacing a clear error.
+        try:
+            return (P.parse_corner_pin_text(text, cw, ch, name, hint_nk=hint_nk),
+                    "Parsed as corner-pin (no explicit marker found).")
+        except Exception:
+            track = P.parse_transform_text(text, cw, ch, name, hint_nk=hint_nk)
+            return (track, "Parsed as transform (no explicit marker found).")
+
+
+# -----------------------------------------------------------------------
 # Registration
 # -----------------------------------------------------------------------
 NODE_CLASS_MAPPINGS = {
+    "NukeMax_MochaImportAuto":              MochaImportAuto,
     "NukeMax_MochaImportCornerPin":         MochaImportCornerPin,
     "NukeMax_MochaImportCornerPinPaste":    MochaImportCornerPinPaste,
     "NukeMax_MochaImportTransform":         MochaImportTransform,
@@ -709,6 +766,7 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "NukeMax_MochaImportAuto":              "Mocha — Import (Auto: paste / upload)",
     "NukeMax_MochaImportCornerPin":         "Mocha — Import Corner Pin (file path)",
     "NukeMax_MochaImportCornerPinPaste":    "Mocha — Import Corner Pin (paste / upload)",
     "NukeMax_MochaImportTransform":         "Mocha — Import Transform (file path)",
