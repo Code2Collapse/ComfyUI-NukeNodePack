@@ -39,6 +39,8 @@ _ECOSYSTEMS = (
     # New (May 2026): STMap lens distortion + OCIO color transform.
     ".nukemax.nodes.lens",
     ".nukemax.nodes.ocio",
+    # New (Jun 2026): chroma keyer + premult math (no more Nuke round-trip to pull a matte).
+    ".nukemax.nodes.keying",
 )
 
 for mod_name in _ECOSYSTEMS:
