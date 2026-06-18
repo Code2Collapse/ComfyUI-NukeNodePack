@@ -24,6 +24,9 @@ import numpy as np
 import torch
 
 from ... import _progress as _PB
+from ...utils.resilience import resilient
+from ..._tensor_util import require_image_bhwc
+from ..._is_changed_util import hash_args_and_kwargs
 logger = logging.getLogger("MEC.EXRIO")
 
 
@@ -71,8 +74,14 @@ def _try_imageio_load(path: str) -> tuple[np.ndarray, dict]:
     return arr, {"backend": "imageio"}
 
 
+@resilient
 class LoadEXRMEC:
     """Load an EXR file as scene-linear IMAGE [1,H,W,3] float32."""
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -146,8 +155,14 @@ def _try_imageio_save(path: str, rgb: np.ndarray) -> dict:
         return {"backend": "tiff_fallback", "fallback_path": alt}
 
 
+@resilient
 class SaveEXRMEC:
     """Save an IMAGE batch to EXR (one file per frame; index suffix appended)."""
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -173,6 +188,7 @@ class SaveEXRMEC:
     DESCRIPTION = "Save IMAGE batch as EXR(s)."
 
     def save(self, image: torch.Tensor, file_path: str, half_float: bool = True):
+        require_image_bhwc(image)
         if not file_path:
             raise ValueError("file_path is required.")
         os.makedirs(os.path.dirname(os.path.abspath(file_path)) or ".", exist_ok=True)
