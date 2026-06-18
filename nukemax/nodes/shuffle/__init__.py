@@ -9,6 +9,8 @@ from __future__ import annotations
 import torch
 
 from ...utils.resilience import resilient
+from ..._tensor_util import require_image_bhwc
+from ..._is_changed_util import hash_args_and_kwargs
 
 
 _CH_OPTS = ("R", "G", "B", "A", "Lum", "0", "1", "Inv_R", "Inv_G", "Inv_B", "Inv_A")
@@ -43,6 +45,11 @@ class ShuffleImage:
     RETURN_TYPES = ("IMAGE", "MASK")
     RETURN_NAMES = ("image", "alpha")
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -56,8 +63,7 @@ class ShuffleImage:
         }
 
     def execute(self, image, out_R, out_G, out_B, out_A):
-        if image.dim() == 3:
-            image = image.unsqueeze(0)
+        require_image_bhwc(image)
         r = _pick(image, out_R)
         g = _pick(image, out_G)
         b = _pick(image, out_B)
@@ -74,6 +80,11 @@ class ShuffleLatent:
     FUNCTION = "execute"
     RETURN_TYPES = ("LATENT",)
     RETURN_NAMES = ("latent",)
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
