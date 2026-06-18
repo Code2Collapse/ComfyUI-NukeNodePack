@@ -8,6 +8,8 @@ from ...core import blur
 from ...core.color import to_bchw, to_bhwc, luminance
 from ...types import TrackingData
 from ...utils.resilience import resilient
+from ..._tensor_util import require_image_bhwc
+from ..._is_changed_util import hash_args_and_kwargs
 
 
 def _mask_to_bchw(m: torch.Tensor) -> torch.Tensor:
@@ -35,6 +37,11 @@ class NormalAwareEdgeBlur:
     RETURN_NAMES = ("mask",)
     OUTPUT_TOOLTIPS = ("Mask blurred only across surfaces with similar normals.",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -47,6 +54,7 @@ class NormalAwareEdgeBlur:
         }
 
     def execute(self, mask, normal, sigma, normal_threshold):
+        require_image_bhwc(normal)
         m = _mask_to_bchw(mask)
         n = to_bchw(normal) * 2 - 1   # remap [0,1] -> [-1,1]
         # Replace zero-magnitude (degenerate) normals with a forward-facing
@@ -98,6 +106,11 @@ class MatteDensityAdjust:
     RETURN_NAMES = ("mask",)
     OUTPUT_TOOLTIPS = ("Mask with adjusted edge density.",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -134,6 +147,11 @@ class SubPixelEdgeDetect:
     RETURN_NAMES = ("edges", "tracks")
     OUTPUT_TOOLTIPS = ("Per-pixel edge magnitude normalized to [0,1].", "Top-K edge point coordinates with confidence per frame.")
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -144,6 +162,7 @@ class SubPixelEdgeDetect:
         }
 
     def execute(self, image, top_k):
+        require_image_bhwc(image)
         x = luminance(to_bchw(image))
         kx = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=x.dtype, device=x.device).view(1, 1, 3, 3)
         ky = kx.transpose(-1, -2)
@@ -180,6 +199,11 @@ class HairAwareChoke:
     RETURN_NAMES = ("mask",)
     OUTPUT_TOOLTIPS = ("Hair-aware choked mask.",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -192,6 +216,7 @@ class HairAwareChoke:
         }
 
     def execute(self, mask, image, choke, hair_window):
+        require_image_bhwc(image)
         m = _mask_to_bchw(mask)
         # Nuke convention: choke=0 is a true no-op (matches Erode/Dilate at 0).
         if choke == 0:
