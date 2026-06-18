@@ -13,6 +13,7 @@ from ...utils.resilience import resilient
 
 from ... import _interrupt_check as _IC
 from ... import _progress as _PB
+from ..._is_changed_util import hash_args_and_kwargs
 def _load_audio(path: str) -> tuple[torch.Tensor, int]:
     p = Path(path)
     try:
@@ -102,6 +103,11 @@ class AudioLoadAnalyze:
     RETURN_NAMES = ("audio", "bpm", "info")
     OUTPUT_TOOLTIPS = ("Bundle of audio features (waveform, STFT, onsets, centroid, RMS).", "Estimated tempo in beats per minute.", "Human-readable summary string.")
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -147,6 +153,11 @@ class AudioToFloatCurve:
     RETURN_TYPES = ("FLOAT", "MASK")
     RETURN_NAMES = ("curve", "curve_image_1d")
     OUTPUT_TOOLTIPS = ("Per-frame float curve normalized to [0,1].", "1D mask visualization of the curve over time.")
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -210,6 +221,11 @@ class AudioDriveMask:
     RETURN_NAMES = ("mask",)
     OUTPUT_TOOLTIPS = ("Mask modulated frame-by-frame by the curve.",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -264,6 +280,11 @@ class AudioDriveSchedule:
     RETURN_NAMES = ("schedule_json", "curve")
     OUTPUT_TOOLTIPS = ("JSON-encoded list of per-frame schedule values.", "Per-frame schedule values as a float list.")
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -289,6 +310,11 @@ class AudioSpectrogram:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("spectrogram",)
     OUTPUT_TOOLTIPS = ("Greyscale RGB spectrogram image (frequency on Y, time on X).",)
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
