@@ -21,6 +21,8 @@ import logging
 import os
 import struct
 from typing import Any
+from ...utils.resilience import resilient
+from ..._is_changed_util import hash_args_and_kwargs
 
 logger = logging.getLogger("MEC.EXRMetadataReader")
 
@@ -150,8 +152,14 @@ def _read_with_openexr(path: str) -> dict:
 #  Node
 # ──────────────────────────────────────────────────────────────────
 
+@resilient
 class EXRMetadataReaderMEC:
     """Read OpenEXR header metadata without decoding pixels."""
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
