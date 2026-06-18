@@ -20,6 +20,9 @@ import logging
 import torch
 
 from ... import _progress as _PB
+from ...utils.resilience import resilient
+from ..._tensor_util import require_image_bhwc
+from ..._is_changed_util import hash_args_and_kwargs
 logger = logging.getLogger("MEC.PlateTools")
 
 
@@ -51,6 +54,7 @@ def _denoise_box(t: torch.Tensor, k: int = 5) -> torch.Tensor:
     return x.permute(0, 2, 3, 1)
 
 
+@resilient
 class GrainMatchMEC:
     """Extract grain noise from ``reference`` and add it to ``target``.
 
@@ -59,6 +63,11 @@ class GrainMatchMEC:
     frames, a random frame is sampled for each target frame so the result
     is temporally non-static.
     """
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -85,6 +94,8 @@ class GrainMatchMEC:
         self, reference: torch.Tensor, target: torch.Tensor,
         intensity: float = 1.0, denoise_kernel: int = 5, seed: int = 0,
     ):
+        require_image_bhwc(reference, "reference")
+        require_image_bhwc(target, "target")
         ref = reference
         if ref.shape[1:3] != target.shape[1:3]:
             x = ref.permute(0, 3, 1, 2)
@@ -144,12 +155,18 @@ def _warp_translate(img: torch.Tensor, dy: float, dx: float) -> torch.Tensor:
     return out.squeeze(0).permute(1, 2, 0)
 
 
+@resilient
 class PlateStabilizerMEC:
     """Affine-stabilize a video batch to its first frame.
 
     With cv2 available, uses ORB features + estimateAffinePartial2D.
     Without cv2, falls back to per-frame translation via FFT phase correlation.
     """
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -168,6 +185,7 @@ class PlateStabilizerMEC:
     DESCRIPTION = "Stabilize a video batch to frame 0 via ORB+affine (cv2) or FFT translation."
 
     def stabilize(self, images: torch.Tensor, max_features: int = 500):
+        require_image_bhwc(images)
         B = images.shape[0]
         if B <= 1:
             return (images, json.dumps({"backend": "noop", "frames": B}))
@@ -228,12 +246,18 @@ class PlateStabilizerMEC:
 #  CleanPlate
 # ──────────────────────────────────────────────────────────────────────
 
+@resilient
 class CleanPlateExtractorMEC:
     """Pixelwise median across a batch with optional mask exclusion.
 
     Excluded pixels are ignored in the median; if no valid samples remain,
     the first frame's pixel is used.
     """
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -252,6 +276,7 @@ class CleanPlateExtractorMEC:
     DESCRIPTION = "Median across a batch (with optional mask exclusion) → clean plate."
 
     def extract(self, images: torch.Tensor, exclude_mask: torch.Tensor | None = None):
+        require_image_bhwc(images)
         if images.shape[0] == 1:
             return (images.clone(),)
         if exclude_mask is None:
@@ -289,8 +314,14 @@ class CleanPlateExtractorMEC:
 #  DifferenceMatte
 # ──────────────────────────────────────────────────────────────────────
 
+@resilient
 class DifferenceMatteMEC:
     """Per-pixel L2 (or L1) distance between two IMAGEs → MASK."""
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -317,6 +348,8 @@ class DifferenceMatteMEC:
         self, image_a: torch.Tensor, image_b: torch.Tensor,
         metric: str = "l2", threshold: float = 0.05, softness: float = 0.05,
     ):
+        require_image_bhwc(image_a, "image_a")
+        require_image_bhwc(image_b, "image_b")
         # MANUAL bug-fix (Apr 2026): if the two IMAGE inputs are sized
         # differently (e.g. one branch was upscaled), bilinearly resize
         # ``image_b`` to match ``image_a`` instead of hard-raising. Mirrors
