@@ -426,6 +426,13 @@ class RotoKeyframeInterp:
                           closed=roto.closed, name=roto.name),)
 
 
+from .roto_stack import (
+    RotoShapeStack,
+    NODE_CLASS_MAPPINGS as _STACK_NCM,
+    NODE_DISPLAY_NAME_MAPPINGS as _STACK_NDM,
+)
+
+
 NODE_CLASS_MAPPINGS = {
     "NukeMax_RotoSplineEditor": RotoSplineEditor,
     "NukeMax_RotoShapeFromFile": RotoShapeFromFile,
@@ -433,6 +440,7 @@ NODE_CLASS_MAPPINGS = {
     "NukeMax_RotoShapeRenderer": RotoShapeRenderer,
     "NukeMax_RotoShapeToDiffusionGuidance": RotoShapeToDiffusionGuidance,
     "NukeMax_RotoKeyframeInterp": RotoKeyframeInterp,
+    **_STACK_NCM,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -442,4 +450,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "NukeMax_RotoShapeRenderer": "Roto Shape Renderer",
     "NukeMax_RotoShapeToDiffusionGuidance": "Roto Shape → Diffusion Guidance",
     "NukeMax_RotoKeyframeInterp": "Roto Keyframe Interp",
+    **_STACK_NDM,
 }

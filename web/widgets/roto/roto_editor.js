@@ -8,6 +8,17 @@ import { app } from "../../../../scripts/app.js";
 
 const NODE_NAME = "NukeMax_RotoSplineEditor";
 
+// Resolve a CSS custom property at draw time; fall back to a hex literal
+// if the token isn't registered (e.g. C2C theme module not loaded).
+function _tok(name, fallback) {
+    try {
+        const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        return v || fallback;
+    } catch {
+        return fallback;
+    }
+}
+
 function createRotoWidget(node) {
     const state = {
         frames: [
@@ -30,13 +41,13 @@ function createRotoWidget(node) {
             const w = widget_width;
             const h = 320;
             ctx.save();
-            ctx.fillStyle = "#222";
+            ctx.fillStyle = _tok("--c2c-surface1", "#222");
             ctx.fillRect(x, y, w, h);
             const frame = state.frames[state.currentFrame] || { points: [] };
             const sx = w / state.canvas.w;
             const sy = h / state.canvas.h;
             // Polyline
-            ctx.strokeStyle = "#5cf";
+            ctx.strokeStyle = _tok("--c2c-blue", "#5cf");
             ctx.lineWidth = 1.5;
             ctx.beginPath();
             frame.points.forEach((p, i) => {
@@ -48,13 +59,13 @@ function createRotoWidget(node) {
             if (state.closed && frame.points.length > 2) ctx.closePath();
             ctx.stroke();
             // Vertices
-            ctx.fillStyle = "#fc6";
+            ctx.fillStyle = _tok("--c2c-yellow", "#fc6");
             frame.points.forEach(p => {
                 ctx.beginPath();
                 ctx.arc(x + p[0] * sx, y + p[1] * sy, 4, 0, Math.PI * 2);
                 ctx.fill();
             });
-            ctx.fillStyle = "#aaa";
+            ctx.fillStyle = _tok("--c2c-sub", "#aaa");
             ctx.font = "10px monospace";
             ctx.fillText(`frame ${state.currentFrame + 1}/${state.frames.length}  pts:${frame.points.length}`, x + 6, y + 14);
             ctx.restore();
