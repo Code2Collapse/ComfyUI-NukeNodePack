@@ -19,12 +19,12 @@ from __future__ import annotations
 import torch
 
 from ...utils.resilience import resilient
+from ..._tensor_util import require_image_bhwc
+from ..._is_changed_util import hash_args_and_kwargs
 
 
 def _rgb_a(image: torch.Tensor):
     """Split [B,H,W,C] into R,G,B and (alpha or ones)."""
-    if image.dim() == 3:
-        image = image.unsqueeze(0)
     C = image.shape[-1]
     R = image[..., 0]
     G = image[..., 1] if C > 1 else R
@@ -45,6 +45,11 @@ class ChromaKeyer:
         "Alpha matte: 1 on the foreground subject, 0 on the screen.",
     )
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -62,6 +67,7 @@ class ChromaKeyer:
         }
 
     def execute(self, image, screen, tolerance, softness, despill):
+        require_image_bhwc(image)
         image, R, G, B, _A = _rgb_a(image)
         if screen == "green":
             prim, other = G, torch.maximum(R, B)
@@ -96,6 +102,11 @@ class Premult:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -106,6 +117,7 @@ class Premult:
         }
 
     def execute(self, image, alpha):
+        require_image_bhwc(image)
         image, R, _G, _B, _A = _rgb_a(image)
         a = alpha
         if a.dim() == 2:
@@ -126,6 +138,11 @@ class Unpremult:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -136,6 +153,7 @@ class Unpremult:
         }
 
     def execute(self, image, alpha):
+        require_image_bhwc(image)
         image, R, _G, _B, _A = _rgb_a(image)
         a = alpha
         if a.dim() == 2:
