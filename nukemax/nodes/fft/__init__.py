@@ -9,6 +9,8 @@ from ...core import fft as nfft
 from ...core.color import to_bchw, to_bhwc
 from ...types import FFTTensor
 from ...utils.resilience import resilient
+from ..._tensor_util import require_image_bhwc
+from ..._is_changed_util import hash_args_and_kwargs
 
 
 @resilient
@@ -20,11 +22,17 @@ class FFTAnalyze:
     RETURN_NAMES = ("fft",)
     OUTPUT_TOOLTIPS = ("FFT tensor bundle (magnitude, phase, original spatial size).",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {"image": ("IMAGE", {"tooltip": "Image batch to transform into the frequency domain."})}}
 
     def execute(self, image):
+        require_image_bhwc(image)
         return (nfft.analyze(to_bchw(image)),)
 
 
@@ -36,6 +44,11 @@ class FFTSynthesize:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)
     OUTPUT_TOOLTIPS = ("Reconstructed image clamped to [0,1].",)
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -54,6 +67,11 @@ class FrequencyMask:
     RETURN_TYPES = ("FFT_TENSOR",)
     RETURN_NAMES = ("fft",)
     OUTPUT_TOOLTIPS = ("Band-pass filtered FFT tensor bundle.",)
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -85,6 +103,11 @@ class LatentFrequencyMatch:
     RETURN_NAMES = ("latent",)
     OUTPUT_TOOLTIPS = ("Latent whose spectrum is matched to the context image.",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -96,6 +119,7 @@ class LatentFrequencyMatch:
         }
 
     def execute(self, noise_latent, context_image, n_bins):
+        require_image_bhwc(context_image)
         samples = noise_latent["samples"]  # (B,4,h,w) typically
         B, C, h, w = samples.shape
         ctx = to_bchw(context_image)
@@ -129,6 +153,11 @@ class FFTTextureSynthesis:
     RETURN_NAMES = ("image",)
     OUTPUT_TOOLTIPS = ("Synthesized texture image at the requested resolution.",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -141,6 +170,7 @@ class FFTTextureSynthesis:
         }
 
     def execute(self, exemplar, out_height, out_width, seed):
+        require_image_bhwc(exemplar)
         import torch.nn.functional as F
         ex = to_bchw(exemplar)
         ex_r = F.interpolate(ex, size=(out_height, out_width), mode="bilinear", align_corners=False)
