@@ -30,6 +30,7 @@ import numpy as np
 import torch
 
 from ...utils.resilience import resilient
+from ..._is_changed_util import hash_args_and_kwargs
 
 
 log = logging.getLogger("NukeMax.EXRRouter")
@@ -135,6 +136,11 @@ class EXRChannelRouter:
         "Custom CSV channels (3-channel) — empty if unspecified.",
         "JSON with full channel list and per-AOV resolution.",
     )
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
