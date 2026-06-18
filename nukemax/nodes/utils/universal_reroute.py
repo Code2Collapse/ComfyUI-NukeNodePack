@@ -13,13 +13,21 @@ Key design:
 """
 
 from __future__ import annotations
+from ...utils.resilience import resilient
+from ..._is_changed_util import hash_args_and_kwargs
 
 _AnyType = type("AnyType", (str,), {"__ne__": lambda self, other: False})
 ANY = _AnyType("*")
 
 
+@resilient
 class UniversalRerouteMEC:
     """Dynamic reroute dot — accepts and forwards any connection type."""
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
