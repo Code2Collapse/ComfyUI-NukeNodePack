@@ -13,6 +13,8 @@ import torch
 
 from ...types import DeepImage
 from ...utils.resilience import resilient
+from ..._tensor_util import require_image_bhwc
+from ..._is_changed_util import hash_args_and_kwargs
 
 
 @resilient
@@ -22,6 +24,11 @@ class DeepFromImage:
     FUNCTION = "execute"
     RETURN_TYPES = ("DEEP_IMAGE",)
     RETURN_NAMES = ("deep",)
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -36,6 +43,7 @@ class DeepFromImage:
         }
 
     def execute(self, image, depth, alpha=None):
+        require_image_bhwc(image)
         if depth.dim() == 4:
             depth = depth.squeeze(-1)
         if alpha is not None and alpha.dim() == 4:
@@ -51,6 +59,11 @@ class DeepMerge:
     FUNCTION = "execute"
     RETURN_TYPES = ("DEEP_IMAGE",)
     RETURN_NAMES = ("deep",)
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -100,6 +113,11 @@ class DeepHoldout:
     RETURN_TYPES = ("DEEP_IMAGE",)
     RETURN_NAMES = ("deep",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -135,6 +153,11 @@ class DeepFlatten:
     RETURN_TYPES = ("IMAGE", "MASK")
     RETURN_NAMES = ("image", "depth")
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {"deep": ("DEEP_IMAGE", {})}}
@@ -151,6 +174,11 @@ class DeepRecolor:
     FUNCTION = "execute"
     RETURN_TYPES = ("DEEP_IMAGE",)
     RETURN_NAMES = ("deep",)
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
