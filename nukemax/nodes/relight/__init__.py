@@ -23,6 +23,8 @@ from ...core import blur, shading
 from ...core.color import to_bchw, to_bhwc, luminance, srgb_to_linear, linear_to_srgb
 from ...types import Light, LightProbe, LightRig, MaterialSet
 from ...utils.resilience import resilient
+from ..._tensor_util import require_image_bhwc
+from ..._is_changed_util import hash_args_and_kwargs
 
 
 @resilient
@@ -38,6 +40,11 @@ class MaterialDecomposerHeuristic:
     RETURN_NAMES = ("materials",)
     OUTPUT_TOOLTIPS = ("Material set bundle (albedo, normal, depth, roughness).",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -49,6 +56,7 @@ class MaterialDecomposerHeuristic:
         }
 
     def execute(self, image, albedo_blur_sigma, depth_strength):
+        require_image_bhwc(image)
         x = srgb_to_linear(to_bchw(image).clamp(0, 1))
         albedo = blur.gaussian_blur(x, albedo_blur_sigma)
         Y = luminance(x)
@@ -78,6 +86,11 @@ class MaterialDecomposerModels:
     RETURN_NAMES = ("materials", "info")
     OUTPUT_TOOLTIPS = ("Material set bundle (albedo, normal, depth, roughness).", "Status message describing which backend was used.")
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -89,6 +102,7 @@ class MaterialDecomposerModels:
         }
 
     def execute(self, image, depth_model, normal_model):
+        require_image_bhwc(image)
         # Lazy import path: try `comfyui_marigold` etc.; if missing, fall back.
         try:
             raise ImportError("Model wrappers not implemented in v0.1.0")
@@ -109,6 +123,11 @@ class LightRigBuilder:
     RETURN_TYPES = ("LIGHT_RIG",)
     RETURN_NAMES = ("rig",)
     OUTPUT_TOOLTIPS = ("Light rig bundle (lights tuple plus ambient color).",)
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -161,6 +180,11 @@ class ThreePointRelight:
     RETURN_NAMES = ("image",)
     OUTPUT_TOOLTIPS = ("Relit sRGB image of the materials under the rig.",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -197,6 +221,11 @@ class LightProbeEstimator:
     RETURN_NAMES = ("probe",)
     OUTPUT_TOOLTIPS = ("Equirectangular HDR light probe bundle.",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -209,6 +238,7 @@ class LightProbeEstimator:
         }
 
     def execute(self, image, materials, probe_height, probe_width):
+        require_image_bhwc(image)
         import math
         x = srgb_to_linear(to_bchw(image).clamp(1e-4, 1))
         radiance = (x / materials.albedo.clamp_min(0.05)).clamp(0, 8)
@@ -251,6 +281,11 @@ class LightProbeToEXR:
     RETURN_NAMES = ("path",)
     OUTPUT_TOOLTIPS = ("Filesystem path of the written probe file (forward slashes).",)
     OUTPUT_NODE = True
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
