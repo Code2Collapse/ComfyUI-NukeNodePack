@@ -11,12 +11,21 @@ import logging
 import os
 
 import torch
+from ...utils.resilience import resilient
+from ..._tensor_util import require_image_bhwc
+from ..._is_changed_util import hash_args_and_kwargs
 
 logger = logging.getLogger("MEC.Metadata")
 
 
+@resilient
 class MetadataWriterMEC:
     """Write an arbitrary JSON sidecar to disk and pass IMAGE through."""
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -40,6 +49,7 @@ class MetadataWriterMEC:
     DESCRIPTION = "Write a JSON sidecar; pass the image through."
 
     def write(self, image: torch.Tensor, sidecar_path: str, metadata_json: str, merge_existing: bool = False):
+        require_image_bhwc(image)
         if not sidecar_path:
             raise ValueError("sidecar_path is required.")
         try:
@@ -61,12 +71,18 @@ class MetadataWriterMEC:
         return (image, sidecar_path.replace("\\", "/"))
 
 
+@resilient
 class FrameRangeRouterMEC:
     """Slice a video batch (IMAGE/MASK) by frame index range.
 
     ``start`` is inclusive, ``end`` is exclusive. Negative values index from
     the end (Python slice semantics). Step controls stride.
     """
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -93,6 +109,7 @@ class FrameRangeRouterMEC:
         self, images: torch.Tensor, start: int, end: int, step: int,
         mask: torch.Tensor | None = None,
     ):
+        require_image_bhwc(images, "images")
         B = images.shape[0]
         # Translate negative end "-1" → "to the end" (B), like a sentinel.
         if end == -1:
@@ -112,8 +129,14 @@ class FrameRangeRouterMEC:
         return (out_imgs, out_mask, int(out_imgs.shape[0]))
 
 
+@resilient
 class ShotMetadataNodeMEC:
     """Read a shot.json descriptor from disk and surface common fields."""
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
