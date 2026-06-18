@@ -18,6 +18,7 @@ import logging
 
 from ...core import nkscript
 from ...utils.resilience import resilient
+from ..._is_changed_util import hash_args_and_kwargs
 
 log = logging.getLogger("nukemax.nkscript")
 
@@ -68,6 +69,11 @@ class NkScriptParse:
     RETURN_TYPES = ("STRING", "INT")
     RETURN_NAMES = ("json", "node_count")
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -93,6 +99,11 @@ class NkScriptSerialize:
     FUNCTION = "execute"
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("text",)
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
