@@ -25,6 +25,8 @@ from ...types import MochaTrack, MochaLens, MochaProject, RotoShape
 from ...core import splines
 from ...utils.resilience import resilient
 from . import parsers as P
+from ..._tensor_util import require_image_bhwc
+from ..._is_changed_util import hash_args_and_kwargs
 
 log = logging.getLogger("nukemax.mocha")
 
@@ -254,6 +256,11 @@ class MochaImportCornerPin:
     RETURN_TYPES = ("MOCHA_TRACK",)
     RETURN_NAMES = ("track",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
@@ -279,6 +286,11 @@ class MochaImportCornerPinPaste:
     FUNCTION = "execute"
     RETURN_TYPES = ("MOCHA_TRACK",)
     RETURN_NAMES = ("track",)
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -318,6 +330,11 @@ class MochaImportTransform:
     RETURN_TYPES = ("MOCHA_TRACK",)
     RETURN_NAMES = ("track",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
@@ -343,6 +360,11 @@ class MochaImportTransformPaste:
     FUNCTION = "execute"
     RETURN_TYPES = ("MOCHA_TRACK",)
     RETURN_NAMES = ("track",)
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -379,6 +401,11 @@ class MochaApplyTracking:
     RETURN_TYPES = ("IMAGE", "MASK")
     RETURN_NAMES = ("image", "mask")
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
@@ -389,6 +416,7 @@ class MochaApplyTracking:
         }}
 
     def execute(self, source, track: MochaTrack, out_width, out_height):
+        require_image_bhwc(source)
         bchw = _images_to_bchw(source)
         B = bchw.shape[0]
         H, W = bchw.shape[-2:]
@@ -428,6 +456,11 @@ class MochaImportShapesAsMask:
     RETURN_TYPES = ("MASK",)
     RETURN_NAMES = ("mask",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
@@ -455,6 +488,11 @@ class MochaImportShapesAsMaskPaste:
     FUNCTION = "execute"
     RETURN_TYPES = ("MASK", "INT", "INT")
     RETURN_NAMES = ("mask", "frame_count", "shape_count")
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -520,6 +558,11 @@ class MochaInvertTrack:
     RETURN_TYPES = ("MOCHA_TRACK",)
     RETURN_NAMES = ("track_inverse",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {"track": ("MOCHA_TRACK",)}}
@@ -575,6 +618,11 @@ class MochaImportLens:
     FUNCTION = "execute"
     RETURN_TYPES = ("MOCHA_LENS",)
     RETURN_NAMES = ("lens",)
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -632,6 +680,11 @@ class MochaApplyLens:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
@@ -641,6 +694,7 @@ class MochaApplyLens:
         }}
 
     def execute(self, image, lens: MochaLens, mode):
+        require_image_bhwc(image)
         bchw = _images_to_bchw(image)
         B, C, H, W = bchw.shape
         if (H, W) != (lens.canvas_h, lens.canvas_w):
@@ -669,6 +723,11 @@ class MochaImportProject:
     FUNCTION = "execute"
     RETURN_TYPES = ("MOCHA_PROJECT", "STRING", "INT", "INT", "FLOAT")
     RETURN_NAMES = ("project", "summary", "canvas_w", "canvas_h", "fps")
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -705,6 +764,11 @@ class MochaImportAuto:
     RETURN_TYPES = ("MOCHA_TRACK", "STRING")
     RETURN_NAMES = ("track", "info")
     OUTPUT_TOOLTIPS = ("Parsed tracking data.", "Which format was detected and parsed.")
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
