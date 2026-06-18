@@ -11,10 +11,14 @@ from __future__ import annotations
 import logging
 
 import torch
+from ...utils.resilience import resilient
+from ..._tensor_util import require_image_bhwc
+from ..._is_changed_util import hash_args_and_kwargs
 
 logger = logging.getLogger("MEC.Geometry")
 
 
+@resilient
 class DepthWarpMEC:
     """Warp an IMAGE horizontally by depth (parallax shift).
 
@@ -24,6 +28,11 @@ class DepthWarpMEC:
     other eye). Pixels are interpolated bilinearly via ``grid_sample``;
     holes are filled with border replication.
     """
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -49,6 +58,8 @@ class DepthWarpMEC:
         self, image: torch.Tensor, depth: torch.Tensor,
         max_shift_pixels: float = 16.0, pivot: float = 0.5,
     ):
+        require_image_bhwc(image)
+        require_image_bhwc(depth, "depth")
         if image.shape[1:3] != depth.shape[1:3]:
             x = depth.permute(0, 3, 1, 2)
             x = torch.nn.functional.interpolate(
@@ -67,6 +78,7 @@ class DepthWarpMEC:
         return (out.permute(0, 2, 3, 1),)
 
 
+@resilient
 class NormalToCurvatureMEC:
     """Approximate curvature from a tangent-space normal pass.
 
@@ -76,6 +88,11 @@ class NormalToCurvatureMEC:
     Output is normalized to [0,1] mask per frame. Useful for edge wear,
     cavity AO synthesis, etc.
     """
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -94,6 +111,7 @@ class NormalToCurvatureMEC:
     DESCRIPTION = "Compute curvature mask from a tangent-space normal pass."
 
     def compute(self, normal: torch.Tensor, scale: float = 1.0):
+        require_image_bhwc(normal, "normal")
         # Map [0,1] normals to [-1,1]
         n = normal * 2.0 - 1.0
         nx = n[..., 0]
@@ -115,12 +133,18 @@ class NormalToCurvatureMEC:
         return (curv,)
 
 
+@resilient
 class PositionPassSplitterMEC:
     """Split a world-position pass (XYZ encoded as RGB) into per-axis masks.
 
     Each axis is normalized via either provided (min, max) or per-frame
     auto-range. Useful for slicing scenes by world-space position.
     """
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -151,6 +175,7 @@ class PositionPassSplitterMEC:
         y_min: float = 0.0, y_max: float = 1.0,
         z_min: float = 0.0, z_max: float = 1.0,
     ):
+        require_image_bhwc(position, "position")
         out = []
         bounds = [(x_min, x_max), (y_min, y_max), (z_min, z_max)]
         for axis in range(3):
