@@ -11,6 +11,8 @@ from ...core.color import to_bchw, to_bhwc, luminance
 from ...core.composite import merge_over_straight
 from ...types import FlowField
 from ...utils.resilience import resilient
+from ..._tensor_util import require_image_bhwc
+from ..._is_changed_util import hash_args_and_kwargs
 
 
 def _farneback_like_flow(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -67,6 +69,11 @@ class ComputeOpticalFlow:
     RETURN_NAMES = ("flow",)
     OUTPUT_TOOLTIPS = ("Flow field bundle containing forward flow, backward flow, and forward occlusion mask.",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -78,6 +85,7 @@ class ComputeOpticalFlow:
         }
 
     def execute(self, frames, method, consistency_threshold):
+        require_image_bhwc(frames)
         x = to_bchw(frames)
         y = luminance(x)  # (B,1,H,W)
         B, _, H, W = y.shape
@@ -120,6 +128,11 @@ class FlowBackwardWarp:
     RETURN_NAMES = ("warped",)
     OUTPUT_TOOLTIPS = ("Image batch resampled by the chosen flow direction.",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -131,6 +144,7 @@ class FlowBackwardWarp:
         }
 
     def execute(self, image, flow, direction):
+        require_image_bhwc(image)
         x = to_bchw(image)
         f = flow.flow_fwd if direction == "forward" else flow.flow_bwd
         # Pad to len(x) by repeating last flow
@@ -153,11 +167,17 @@ class FlowForwardWarp:
     RETURN_NAMES = ("warped", "weight")
     OUTPUT_TOOLTIPS = ("Forward-warped image, normalized by accumulated splat weight.", "Per-pixel splat coverage (0=no contribution, 1=full).")
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {"image": ("IMAGE", {"tooltip": "Source image batch to splat-forward."}), "flow": ("FLOW_FIELD", {"tooltip": "Flow field bundle from Compute Optical Flow."})}}
 
     def execute(self, image, flow):
+        require_image_bhwc(image)
         x = to_bchw(image)
         f = flow.flow_fwd
         T = x.shape[0]
@@ -178,6 +198,11 @@ class FlowOcclusionMask:
     RETURN_TYPES = ("MASK",)
     RETURN_NAMES = ("occlusion",)
     OUTPUT_TOOLTIPS = ("Per-pixel forward-flow occlusion mask (1=occluded/inconsistent).",)
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -203,6 +228,11 @@ class CleanPlateMerge:
     RETURN_NAMES = ("image",)
     OUTPUT_TOOLTIPS = ("Clean composite with the masked object replaced by the warped plate.",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -216,6 +246,8 @@ class CleanPlateMerge:
         }
 
     def execute(self, footage, clean_plate, object_mask, flow, feather_px):
+        require_image_bhwc(footage)
+        require_image_bhwc(clean_plate)
         from ...core import blur as nblur
         foot = to_bchw(footage)
         plate = to_bchw(clean_plate)
@@ -243,6 +275,11 @@ class FlowVisualize:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)
     OUTPUT_TOOLTIPS = ("RGB image visualizing flow direction (hue) and magnitude (saturation).",)
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
