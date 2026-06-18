@@ -18,6 +18,8 @@ from ...core import blur, splines
 from ...core.flow import backward_warp
 from ...types import RotoShape, TrackingData
 from ...utils.resilience import resilient
+from ..._tensor_util import require_image_bhwc
+from ..._is_changed_util import hash_args_and_kwargs
 
 
 # ---------------- Roto Spline Editor (interactive) ----------------
@@ -43,6 +45,11 @@ class RotoSplineEditor:
     RETURN_TYPES = ("ROTO_SHAPE",)
     RETURN_NAMES = ("roto",)
     OUTPUT_TOOLTIPS = ("Per-frame roto shape (points, handles, feather, canvas).",)
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -97,6 +104,11 @@ class RotoShapeFromFile:
     RETURN_NAMES = ("roto",)
     OUTPUT_TOOLTIPS = ("Roto shape parsed from the JSON file.",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {"path": ("STRING", {"default": "", "tooltip": "Filesystem path to a JSON file containing a roto spline state."})}}
@@ -126,6 +138,11 @@ class RotoShapeToAITracker:
     RETURN_NAMES = ("roto_animated", "tracks")
     OUTPUT_TOOLTIPS = ("Roto shape with per-frame propagated points and handles.", "Per-frame tracking data (coords, velocity, confidence) for the vertices.")
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -140,6 +157,7 @@ class RotoShapeToAITracker:
         }
 
     def execute(self, roto: RotoShape, frames: torch.Tensor, flow=None, search_radius: int = 8):
+        require_image_bhwc(frames)
         # frames: (B,H,W,C) ComfyUI -> (B,C,H,W)
         if frames.shape[-1] in (1, 3, 4) and frames.shape[1] not in (1, 3, 4):
             frames_bchw = frames.permute(0, 3, 1, 2).contiguous()
@@ -263,6 +281,11 @@ class RotoShapeRenderer:
     RETURN_NAMES = ("mask",)
     OUTPUT_TOOLTIPS = ("Rasterized per-frame roto mask.",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -312,6 +335,11 @@ class RotoShapeToDiffusionGuidance:
     RETURN_TYPES = ("MASK", "MASK", "MASK", "STRING")
     RETURN_NAMES = ("mask_hard", "mask_soft", "mask_latent", "sam_prompts_json")
     OUTPUT_TOOLTIPS = ("Hard binary roto mask at canvas resolution.", "Soft Gaussian-feathered roto mask for inpainting.", "Roto mask downsampled to latent resolution.", "JSON list of per-frame SAM prompts (boxes, points, labels).")
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -370,6 +398,11 @@ class RotoKeyframeInterp:
     FUNCTION = "execute"
     RETURN_TYPES = ("ROTO_SHAPE",)
     RETURN_NAMES = ("roto",)
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
