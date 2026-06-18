@@ -11,6 +11,9 @@ from __future__ import annotations
 import logging
 
 import torch
+from ...utils.resilience import resilient
+from ..._tensor_util import require_image_bhwc
+from ..._is_changed_util import hash_args_and_kwargs
 
 logger = logging.getLogger("MEC.RenderPass")
 
@@ -35,6 +38,7 @@ def _match_shape(a: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     return a
 
 
+@resilient
 class MergeRenderPassesMEC:
     """Composite beauty/diffuse/specular/emission/AO into a single IMAGE.
 
@@ -46,6 +50,11 @@ class MergeRenderPassesMEC:
     All inputs are optional except ``beauty``. Missing passes contribute 0.
     AO defaults to multiplicative on beauty.
     """
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -84,6 +93,15 @@ class MergeRenderPassesMEC:
         emission_gain: float = 1.0,
         ao_strength: float = 1.0,
     ):
+        require_image_bhwc(beauty, "beauty")
+        if diffuse is not None:
+            require_image_bhwc(diffuse, "diffuse")
+        if specular is not None:
+            require_image_bhwc(specular, "specular")
+        if emission is not None:
+            require_image_bhwc(emission, "emission")
+        if ao is not None:
+            require_image_bhwc(ao, "ao")
         out = beauty.clone()
         if ao is not None:
             ao_m = _match_shape(ao, beauty)
@@ -99,6 +117,7 @@ class MergeRenderPassesMEC:
         return (out.clamp(0.0, 1e6),)
 
 
+@resilient
 class DepthOfFieldMaskMEC:
     """Convert a depth pass into a per-pixel CoC (defocus) alpha mask.
 
@@ -108,6 +127,11 @@ class DepthOfFieldMaskMEC:
     The depth pass may be a 1-channel or 3-channel IMAGE; if 3-channel,
     the R channel is used.
     """
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -141,8 +165,7 @@ class DepthOfFieldMaskMEC:
         invert: bool = False,
         depth_channel: str = "R",
     ):
-        if depth.dim() != 4:
-            raise ValueError(f"depth must be IMAGE [B,H,W,C], got shape {tuple(depth.shape)}")
+        require_image_bhwc(depth, "depth")
         if depth.shape[-1] >= 3 and depth_channel == "luma":
             d = (0.2126 * depth[..., 0] + 0.7152 * depth[..., 1] + 0.0722 * depth[..., 2])
         else:
