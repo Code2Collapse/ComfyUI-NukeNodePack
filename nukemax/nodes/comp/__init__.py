@@ -12,6 +12,8 @@ import torch
 import torch.nn.functional as F
 
 from ...utils.resilience import resilient
+from ..._tensor_util import require_image_bhwc
+from ..._is_changed_util import hash_args_and_kwargs
 
 _LUMA = (0.2126, 0.7152, 0.0722)
 
@@ -54,6 +56,11 @@ class Reformat:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
@@ -66,6 +73,7 @@ class Reformat:
         }}
 
     def execute(self, image, width, height, filter, preserve_aspect):
+        require_image_bhwc(image)
         x = _bchw(image)
         _, _, h0, w0 = x.shape
         tw, th = int(width), int(height)
@@ -95,6 +103,11 @@ class Crop:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
@@ -108,8 +121,7 @@ class Crop:
         }}
 
     def execute(self, image, x, y, width, height, keep_canvas):
-        if image.dim() == 3:
-            image = image.unsqueeze(0)
+        require_image_bhwc(image)
         B, H, W, C = image.shape
         x0, y0 = max(0, int(x)), max(0, int(y))
         x1, y1 = min(W, x0 + int(width)), min(H, y0 + int(height))
@@ -130,6 +142,11 @@ class ColorCorrect:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
@@ -142,8 +159,7 @@ class ColorCorrect:
         }}
 
     def execute(self, image, gain, offset, gamma, contrast, saturation):
-        if image.dim() == 3:
-            image = image.unsqueeze(0)
+        require_image_bhwc(image)
         img = image[..., :3]
         out = img * float(gain) + float(offset)
         out = out.clamp(min=1e-6) ** (1.0 / float(gamma)) if gamma != 1.0 else out
@@ -167,6 +183,11 @@ class Clamp:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
@@ -176,6 +197,7 @@ class Clamp:
         }}
 
     def execute(self, image, minimum, maximum):
+        require_image_bhwc(image)
         lo, hi = float(minimum), float(maximum)
         if hi < lo:
             lo, hi = hi, lo
@@ -190,6 +212,11 @@ class Saturation:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
@@ -198,8 +225,7 @@ class Saturation:
         }}
 
     def execute(self, image, saturation):
-        if image.dim() == 3:
-            image = image.unsqueeze(0)
+        require_image_bhwc(image)
         img = image[..., :3]
         lum = img[..., 0] * _LUMA[0] + img[..., 1] * _LUMA[1] + img[..., 2] * _LUMA[2]
         out = (lum.unsqueeze(-1) + (img - lum.unsqueeze(-1)) * float(saturation)).clamp(0, 1)
@@ -217,6 +243,11 @@ class Glow:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
@@ -227,8 +258,7 @@ class Glow:
         }}
 
     def execute(self, image, threshold, size, intensity):
-        if image.dim() == 3:
-            image = image.unsqueeze(0)
+        require_image_bhwc(image)
         img = image[..., :3]
         lum = img[..., 0] * _LUMA[0] + img[..., 1] * _LUMA[1] + img[..., 2] * _LUMA[2]
         mask = (lum.unsqueeze(-1) - float(threshold)).clamp(min=0.0) / max(1e-4, 1.0 - float(threshold))
@@ -249,6 +279,11 @@ class ErodeDilate:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
@@ -258,11 +293,10 @@ class ErodeDilate:
         }}
 
     def execute(self, image, size):
+        require_image_bhwc(image)
         n = int(size)
         if n == 0:
             return (image.contiguous(),)
-        if image.dim() == 3:
-            image = image.unsqueeze(0)
         k = 2 * abs(n) + 1
         x = image.permute(0, 3, 1, 2).contiguous()
         if n > 0:
