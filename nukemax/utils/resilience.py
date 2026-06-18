@@ -46,12 +46,23 @@ def resilient(cls):
     fn_name = getattr(cls, "FUNCTION", None)
     if not fn_name or not hasattr(cls, fn_name):
         return cls
+
+    if not hasattr(cls, "IS_CHANGED"):
+        from .._is_changed_util import hash_args_and_kwargs
+
+        @classmethod
+        def IS_CHANGED(cls, **kwargs):  # noqa: N805
+            return hash_args_and_kwargs(**kwargs)
+
+        cls.IS_CHANGED = IS_CHANGED
+
     original = getattr(cls, fn_name)
 
     @functools.wraps(original)
     def wrapped(self, *args, **kwargs):
         try:
-            return original(self, *args, **kwargs)
+            with torch.inference_mode():
+                return original(self, *args, **kwargs)
         except Exception as exc:  # noqa: BLE001
             tb = traceback.format_exc()
             log.error("[%s] %s\n%s", cls.__name__, exc, tb)
