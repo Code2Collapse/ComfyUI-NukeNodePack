@@ -23,6 +23,8 @@ import torch
 import torch.nn.functional as F
 
 from ...utils.resilience import resilient
+from ..._tensor_util import require_image_bhwc
+from ..._is_changed_util import hash_args_and_kwargs
 
 
 _INTERP_MODES = ("bilinear", "bicubic", "nearest")
@@ -55,6 +57,11 @@ class STMapApply:
     RETURN_NAMES = ("image",)
     OUTPUT_TOOLTIPS = ("Warped IMAGE at the STMap resolution.",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -73,6 +80,8 @@ class STMapApply:
 
     def execute(self, image: torch.Tensor, stmap: torch.Tensor,
                 interpolation: str, padding_mode: str, preserve_hdr: bool = True):
+        require_image_bhwc(image)
+        require_image_bhwc(stmap)
         if image.ndim != 4 or stmap.ndim != 4:
             raise ValueError("STMapApply expects IMAGE tensors (B,H,W,3).")
         # Match batch sizes via broadcast.
@@ -109,6 +118,11 @@ class STMapIdentity:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("stmap",)
     OUTPUT_TOOLTIPS = ("Identity STMap as IMAGE (B,H,W,3) float32.",)
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -153,6 +167,11 @@ class STMapInvert:
     RETURN_NAMES = ("stmap_inv",)
     OUTPUT_TOOLTIPS = ("Inverted STMap.",)
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -164,6 +183,7 @@ class STMapInvert:
         }
 
     def execute(self, stmap: torch.Tensor, fill_iterations: int):
+        require_image_bhwc(stmap)
         if stmap.ndim != 4 or stmap.shape[-1] < 2:
             raise ValueError("STMapInvert expects an IMAGE (B,H,W,3) STMap.")
         B, H, W, _ = stmap.shape
