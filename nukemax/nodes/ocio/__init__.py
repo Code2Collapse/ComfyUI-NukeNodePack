@@ -26,6 +26,8 @@ import torch
 import folder_paths  # type: ignore[import-not-found]
 
 from ...utils.resilience import resilient
+from ..._tensor_util import require_image_bhwc
+from ..._is_changed_util import hash_args_and_kwargs
 
 
 log = logging.getLogger("NukeMax.OCIO")
@@ -134,6 +136,11 @@ class OCIOColorTransform:
     RETURN_NAMES = ("image", "info_json")
     OUTPUT_TOOLTIPS = ("Transformed IMAGE.", "JSON with config path and applied transform.")
 
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -153,6 +160,7 @@ class OCIOColorTransform:
 
     def execute(self, image: torch.Tensor, config: str, src_colorspace: str,
                 dst_colorspace: str, list_spaces: bool = False):
+        require_image_bhwc(image)
         import json as _json
         try:
             import PyOpenColorIO as OCIO  # type: ignore[import-not-found]
