@@ -20,6 +20,7 @@ import torch
 from ...core import blur, splines
 from ...types import RotoShape
 from ...utils.resilience import resilient
+from ..._is_changed_util import hash_args_and_kwargs
 
 
 _OPS = ("union", "add", "max", "sub", "intersect", "min", "replace")
@@ -82,6 +83,11 @@ class RotoShapeStack:
     RETURN_TYPES = ("MASK",)
     RETURN_NAMES = ("mask",)
     OUTPUT_TOOLTIPS = ("Composited per-frame mask.",)
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
