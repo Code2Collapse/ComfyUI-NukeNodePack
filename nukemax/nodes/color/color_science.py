@@ -17,6 +17,9 @@ import os
 import re
 
 import torch
+from ...utils.resilience import resilient
+from ..._tensor_util import require_image_bhwc
+from ..._is_changed_util import hash_args_and_kwargs
 
 logger = logging.getLogger("MEC.ColorScience")
 
@@ -108,8 +111,14 @@ def _convert(img: torch.Tensor, src: str, dst: str) -> torch.Tensor:
     raise ValueError(f"Unknown destination space: {dst}")
 
 
+@resilient
 class ColorSpaceConvertMEC:
     """Convert IMAGE between sRGB / linear / Rec.709 / ACEScg."""
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -129,6 +138,7 @@ class ColorSpaceConvertMEC:
     DESCRIPTION = "Convert IMAGE between sRGB, linear, Rec.709, and ACEScg."
 
     def convert(self, image: torch.Tensor, src_space: str, dst_space: str):
+        require_image_bhwc(image)
         return (_convert(image, src_space, dst_space),)
 
 
@@ -254,8 +264,14 @@ def _apply_lut_1d(img: torch.Tensor, lut: dict) -> torch.Tensor:
     return out
 
 
+@resilient
 class LUTApplyMEC:
     """Apply a .cube LUT (1D or 3D) to an IMAGE."""
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -277,6 +293,7 @@ class LUTApplyMEC:
     DESCRIPTION = "Apply a .cube LUT (Adobe format, 1D or 3D) with optional strength blend."
 
     def apply(self, image: torch.Tensor, lut_path: str, strength: float = 1.0):
+        require_image_bhwc(image)
         lut = parse_cube_lut(lut_path)
         if lut["dim"] == 3:
             graded = _apply_lut_3d(image, lut)
@@ -305,8 +322,14 @@ def _temp_tint_to_rgb_gain(temp: float, tint: float) -> tuple[float, float, floa
     return (max(r, 0.0), max(grn, 0.0), max(b, 0.0))
 
 
+@resilient
 class ExposureGradeMEC:
     """Exposure (in stops), WB temp/tint, and contrast around mid-grey pivot."""
+
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -357,6 +380,7 @@ class ExposureGradeMEC:
         pivot: float,
         operate_in_linear: bool = True,
     ):
+        require_image_bhwc(image)
         x = image
         if operate_in_linear:
             x = _srgb_to_linear(x)
