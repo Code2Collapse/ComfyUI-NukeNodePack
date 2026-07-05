@@ -58,6 +58,9 @@ function createWaveformWidget(node) {
         type: "custom",
         name: "audio_waveform",
         size: [320, 96],
+        // Reserve the drawn 96px strip — without computeSize LiteGraph gave this
+        // ~20px and the waveform painted past the node's bottom border.
+        computeSize(width) { return [width || 320, 96]; },
         draw(ctx, node, w, y, h) {
             const height = 96;
             ctx.save();
@@ -91,6 +94,11 @@ function createWaveformWidget(node) {
     };
 
     node.addCustomWidget(widget);
+    // Grow the node so the reserved waveform row fits on creation.
+    try {
+        const sz = node.computeSize();
+        node.setSize([Math.max(node.size?.[0] || 0, sz[0], 320), Math.max(node.size?.[1] || 0, sz[1])]);
+    } catch (_) {}
     // Trigger initial load if path is already set
     setTimeout(loadPreview, 100);
     return widget;

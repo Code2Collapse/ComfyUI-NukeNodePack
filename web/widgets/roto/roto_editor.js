@@ -36,6 +36,11 @@ function createRotoWidget(node) {
         type: "custom",
         name: "roto_canvas",
         size: [320, 320],
+        // Without computeSize LiteGraph reserves only the default ~20px row for a
+        // custom widget — the 320px editor then painted PAST the node's bottom
+        // border (canvas overflowing onto the graph). This makes layout reserve
+        // the true drawn height so the node body contains the editor.
+        computeSize(width) { return [width || 320, 320]; },
         draw(ctx, node, widget_width, y, widget_height) {
             const x = 0;
             const w = widget_width;
@@ -114,6 +119,12 @@ function createRotoWidget(node) {
 
     sync();
     node.addCustomWidget(widget);
+    // Grow the node so the freshly-reserved 320px editor row fits on creation
+    // (computeSize now includes it; without this the node opened at ~200px).
+    try {
+        const sz = node.computeSize();
+        node.setSize([Math.max(node.size?.[0] || 0, sz[0], 360), Math.max(node.size?.[1] || 0, sz[1])]);
+    } catch (_) {}
     return widget;
 }
 

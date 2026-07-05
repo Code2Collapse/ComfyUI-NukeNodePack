@@ -280,8 +280,11 @@ class MochaImportCornerPin:
 # -----------------------------------------------------------------------
 @resilient
 class MochaImportCornerPinPaste:
-    DESCRIPTION = ("Same as Mocha Import Corner Pin, but accepts the .nk export pasted directly into the text box "
-                   "OR uploaded via the Upload .nk button (file is saved under ComfyUI/input/mocha/).")
+    DESCRIPTION = ("Paste Mocha's tracking data straight from the clipboard: supports Mocha Pro's "
+                   "'Copy to Clipboard' After Effects Keyframe Data (Corner Pin AND CC Power Pin), "
+                   "the Nuke .nk CornerPin2D export, and plain ASCII 'frame x1 y1 … x4 y4' rows. "
+                   "AE clipboard blocks carry the true plate size — canvas_width/height are then "
+                   "auto-corrected from the data. Files can also be uploaded via the Upload button.")
     CATEGORY = "NukeMax/Mocha"
     FUNCTION = "execute"
     RETURN_TYPES = ("MOCHA_TRACK",)
@@ -296,8 +299,10 @@ class MochaImportCornerPinPaste:
     def INPUT_TYPES(cls):
         return {"required": {
             "nk_text": ("STRING", {"multiline": True, "default": "",
-                                    "tooltip": "Paste the contents of the Mocha .nk corner-pin export here. "
-                                               "Or use the Upload .nk button to populate uploaded_file."}),
+                                    "tooltip": "Paste tracking data here — in Mocha use Export → After Effects "
+                                               "Corner Pin (or CC Power Pin) → COPY TO CLIPBOARD and paste the whole "
+                                               "block (starts with 'Adobe After Effects … Keyframe Data'). "
+                                               ".nk CornerPin2D exports and plain 'frame x1 y1 … x4 y4' rows also work."}),
             "uploaded_file": ("STRING", {"default": "",
                                           "tooltip": "Filename inside ComfyUI/input/mocha/ — set automatically by the Upload .nk button."}),
             "canvas_width": ("INT", {"default": 1920, "min": 1, "max": 16384}),
@@ -314,7 +319,8 @@ class MochaImportCornerPinPaste:
                 text = f.read().decode("utf-8-sig", errors="replace")
             hint_nk = path.lower().endswith(".nk")
         if not text:
-            raise ValueError("paste the .nk corner-pin export into nk_text, or upload a file")
+            raise ValueError("Paste Mocha's 'Copy to Clipboard' block (AE Corner Pin / CC Power Pin) "
+                             "or a .nk corner-pin export into nk_text, or upload a file.")
         track = P.parse_corner_pin_text(text, int(canvas_width), int(canvas_height), name, hint_nk=hint_nk)
         return (track,)
 

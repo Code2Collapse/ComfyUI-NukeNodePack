@@ -61,6 +61,9 @@ function createLightRigWidget(node) {
         type: "custom",
         name: "light_sphere",
         size: [320, 320],
+        // Reserve the true drawn height — without computeSize LiteGraph gave this
+        // ~20px and the 320px sphere painted past the node's bottom border.
+        computeSize(width) { return [width || 320, 320]; },
         draw(ctx, node, w, y, h) {
             const size = 320;
             const cx = w / 2;
@@ -165,6 +168,11 @@ function createLightRigWidget(node) {
 
     sync();
     node.addCustomWidget(widget);
+    // Grow the node so the reserved 320px sphere row fits on creation.
+    try {
+        const sz = node.computeSize();
+        node.setSize([Math.max(node.size?.[0] || 0, sz[0], 360), Math.max(node.size?.[1] || 0, sz[1])]);
+    } catch (_) {}
     return widget;
 }
 

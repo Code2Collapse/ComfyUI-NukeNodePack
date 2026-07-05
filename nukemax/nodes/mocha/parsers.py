@@ -124,7 +124,110 @@ def parse_corner_pin_text(text: str, canvas_w: int, canvas_h: int,
     """Corner-pin parser that takes the export content directly as a string."""
     if hint_nk or "CornerPin2D" in text:
         return _parse_corner_pin_nk(text, canvas_w, canvas_h, name)
+    # Mocha Pro's "Copy to Clipboard" produces the Adobe After Effects
+    # "Keyframe Data" block — THE format users actually paste. Detect it
+    # before the generic ASCII fallback (its rows are `frame x y`, which the
+    # 9-number ASCII parser would reject).
+    if "Keyframe Data" in text and re.search(r"^Effects\t", text, flags=re.M):
+        return _parse_corner_pin_ae_keyframes(text, canvas_w, canvas_h, name)
     return _parse_corner_pin_ascii(text, canvas_w, canvas_h, name)
+
+
+# ── Adobe After Effects "Keyframe Data" clipboard (Mocha: Copy to Clipboard) ──
+#
+#   Adobe After Effects 8.0 Keyframe Data
+#   \t Units Per Second \t 23.976
+#   \t Source Width \t 1920
+#   \t Source Height \t 1080
+#   ...
+#   Effects \t Corner Pin #1 \t Upper Left #2
+#   \t Frame \t X pixels \t Y pixels
+#   \t 0 \t 100.5 \t 200.3
+#   ...
+#   End of Keyframe Data
+#
+# Two corner effects exist in the wild:
+#   "Corner Pin"    → properties named Upper Left / Upper Right /
+#                     Lower Left / Lower Right
+#   "CC Power Pin"  → properties -0004 (TL), -0005 (TR), -0006 (BL), -0007 (BR)
+# AE coordinates are image-space (origin top-left, Y down) — the same
+# convention as MochaTrack, so no flip. Corner order maps to TL,TR,BR,BL.
+
+_AE_CORNER_SLOTS = {
+    # "Corner Pin" property names → MochaTrack corner index (TL,TR,BR,BL)
+    "upper left": 0, "upper right": 1, "lower right": 2, "lower left": 3,
+    # "CC Power Pin" numeric property ids
+    "0004": 0, "0005": 1, "0007": 2, "0006": 3,
+}
+
+
+def _ae_header_dims(text: str) -> tuple[int | None, int | None]:
+    w = h = None
+    mw = re.search(r"Source Width\t([0-9.]+)", text)
+    mh = re.search(r"Source Height\t([0-9.]+)", text)
+    if mw:
+        w = int(float(mw.group(1)))
+    if mh:
+        h = int(float(mh.group(1)))
+    return w, h
+
+
+def _parse_corner_pin_ae_keyframes(text: str, canvas_w: int, canvas_h: int,
+                                   name: str) -> MochaTrack:
+    # The clipboard block knows the true plate size — prefer it over widgets.
+    src_w, src_h = _ae_header_dims(text)
+    if src_w:
+        canvas_w = src_w
+    if src_h:
+        canvas_h = src_h
+
+    # Split into per-property sections at each "Effects\t<group>\t<property>" line.
+    corners: dict[int, dict[int, tuple[float, float]]] = {}
+    sections = re.split(r"^Effects\t", text, flags=re.M)[1:]
+    for sec in sections:
+        header, _, body = sec.partition("\n")
+        prop = header.split("\t")[-1].strip().lower()
+        slot = None
+        for key, idx in _AE_CORNER_SLOTS.items():
+            if key in prop:
+                slot = idx
+                break
+        if slot is None:
+            continue  # Rotation / Scale / Enable Expansion etc. — not a corner
+        kf: dict[int, tuple[float, float]] = {}
+        for line in body.splitlines():
+            if line.strip().lower().startswith(("frame", "end of keyframe")):
+                continue
+            nums = _floats(line)
+            if len(nums) >= 3:
+                kf[int(nums[0])] = (nums[1], nums[2])
+        if kf:
+            corners[slot] = kf
+
+    if len(corners) < 4:
+        raise ValueError(
+            "After Effects clipboard data found, but only %d of the 4 corner-pin "
+            "properties were present. In Mocha choose Export → 'After Effects "
+            "Corner Pin' (or CC Power Pin) → Copy to Clipboard, then paste the "
+            "whole block." % len(corners)
+        )
+
+    frames = sorted({f for kf in corners.values() for f in kf})
+    f0, f1 = frames[0], frames[-1]
+    T = f1 - f0 + 1
+    params = torch.zeros(T, 4, 2, dtype=torch.float32)
+    for slot in range(4):
+        kf = corners[slot]
+        last = kf[min(kf)]
+        for t in range(T):
+            if (t + f0) in kf:
+                last = kf[t + f0]
+            params[t, slot, 0] = last[0]
+            params[t, slot, 1] = last[1]
+    return MochaTrack(
+        kind="corner_pin", params=params,
+        canvas_h=canvas_h, canvas_w=canvas_w, name=name,
+    )
 
 
 def _parse_corner_pin_nk(text: str, canvas_w: int, canvas_h: int, name: str) -> MochaTrack:

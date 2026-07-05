@@ -43,6 +43,16 @@ _ECOSYSTEMS = (
     ".nukemax.nodes.keying",
     # New (Jun 2026): everyday comp nodes — Reformat/Crop/ColorCorrect/Clamp/Saturation/Glow/Erode-Dilate.
     ".nukemax.nodes.comp",
+    # New (Jun 2026): core Nuke daily-drivers — Grade/Merge/Transform/Mirror/Sharpen/Median/
+    # Invert/Gamma/Multiply/Exposure/Dissolve/Keymix + generators (Constant/Checker/Bars/Ramp).
+    ".nukemax.nodes.essentials",
+    # Batch 2: Add/HueShift/Log2Lin/Posterize/ClipTest, Keyer/Difference/Despill,
+    # Defocus/Soften, CornerPin/Tile/Switch, Noise/Radial/Rectangle.
+    ".nukemax.nodes.essentials2",
+    # Batch 3: Blur/EdgeDetect/Emboss/Bilateral/ZDefocus/MinMax (filter),
+    # Position/ContactSheet/AppendClip (transform), Text/Grid/Vignette (generate),
+    # ChannelMixer/HistEQ (color).
+    ".nukemax.nodes.essentials3",
 )
 
 for mod_name in _ECOSYSTEMS:
