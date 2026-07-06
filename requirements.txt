@@ -5,3 +5,12 @@ soundfile>=0.12
 # EXR I/O (LoadEXRMEC / SaveEXRMEC). OpenEXR is preferred when available;
 # imageio is the cross-platform fallback.
 imageio>=2.31
+# OCIO color pipeline (NukeMax_OCIOColorTransform / LogConvert / Display).
+# OCIO >= 2.2 ships built-in ACES configs incl. ARRI LogC3/LogC4 — no
+# config download needed.
+opencolorio>=2.2
+# ProRes MOV export (NukeMax_ProResSave). Optional: only needed for MOV.
+av>=10.0
+# EXR sequence read/write (NukeMax_EXRSequence*). OpenEXR preferred;
+# cv2 fallback is used when the bindings are absent.
+OpenEXR>=3.2; python_version >= "3.10"

@@ -54,9 +54,29 @@ def _register_folder() -> None:
 _register_folder()
 
 
+# OCIO 2.2+ ships built-in ACES configs (no download): the studio config
+# includes ARRI LogC3 (EI800) + LogC4, camera log spaces, and full
+# display/view pipelines. Listed first so the nodes work out of the box.
+_BUILTIN_CONFIGS = {
+    "builtin: ACES Studio (LogC3/C4, camera spaces)": "ocio://studio-config-latest",
+    "builtin: ACES CG": "ocio://cg-config-latest",
+    "builtin: OCIO default (ACES)": "ocio://default",
+}
+
+
+def _builtin_available() -> bool:
+    try:
+        import PyOpenColorIO as OCIO  # noqa: F401
+        return hasattr(OCIO.Config, "CreateFromBuiltinConfig")
+    except Exception:
+        return False
+
+
 def _list_configs() -> List[str]:
     """Return discoverable OCIO config display names (filename or folder)."""
     out: List[str] = []
+    if _builtin_available():
+        out.extend(_BUILTIN_CONFIGS.keys())
     # 1. $OCIO env var
     env = os.environ.get("OCIO")
     if env and os.path.isfile(env):
@@ -81,6 +101,8 @@ def _list_configs() -> List[str]:
 
 
 def _resolve_config_path(choice: str) -> Optional[str]:
+    if choice in _BUILTIN_CONFIGS:
+        return _BUILTIN_CONFIGS[choice]
     if choice.startswith("$OCIO:"):
         return os.environ.get("OCIO")
     try:
@@ -100,6 +122,8 @@ def _resolve_config_path(choice: str) -> Optional[str]:
 @lru_cache(maxsize=8)
 def _load_config(path: str):
     import PyOpenColorIO as OCIO  # type: ignore[import-not-found]
+    if path.startswith("ocio://"):
+        return OCIO.Config.CreateFromBuiltinConfig(path)
     return OCIO.Config.CreateFromFile(path)
 
 
@@ -110,15 +134,26 @@ def _colorspaces_for(path: str) -> Tuple[str, ...]:
 
 
 def _apply_processor(image: torch.Tensor, processor) -> torch.Tensor:
-    """Apply an OCIO Processor (cpu) to (B,H,W,3) float32 IMAGE."""
+    """Apply an OCIO Processor (cpu) to (B,H,W,C) float32 IMAGE.
+
+    Uses PackedImageDesc + apply(): CPUProcessor.applyRGB(ndarray) silently
+    no-ops on some PyOpenColorIO builds (observed on 2.5.2 — it transforms a
+    converted copy, not the caller's buffer), which made this node an
+    identity transform. PackedImageDesc mutates the frame in place reliably.
+    """
+    import PyOpenColorIO as OCIO  # type: ignore[import-not-found]
     cpu = processor.getDefaultCPUProcessor()
-    arr = image.detach().cpu().contiguous().float().numpy()
-    out = np.empty_like(arr)
-    for b in range(arr.shape[0]):
-        buf = np.ascontiguousarray(arr[b])  # (H,W,3)
-        cpu.applyRGB(buf)
-        out[b] = buf
-    return torch.from_numpy(out).to(image.device)
+    # copy=True is load-bearing: PackedImageDesc keeps a raw pointer into the
+    # buffer, and a torch-shared buffer under inference_mode (the @resilient
+    # wrapper) is not stable — observed as identity output or garbage values.
+    # A numpy-owned copy is safe for OCIO to mutate in place.
+    arr = np.array(image.detach().cpu().float().numpy(), dtype=np.float32, copy=True)
+    B, H, W, C = arr.shape
+    for b in range(B):
+        frame = np.ascontiguousarray(arr[b])
+        cpu.apply(OCIO.PackedImageDesc(frame, W, H, C))
+        arr[b] = frame
+    return torch.from_numpy(arr).to(image.device)
 
 
 @resilient
@@ -202,5 +237,133 @@ class OCIOColorTransform:
         return (out, _json.dumps(info, indent=2))
 
 
-NODE_CLASS_MAPPINGS = {"NukeMax_OCIOColorTransform": OCIOColorTransform}
-NODE_DISPLAY_NAME_MAPPINGS = {"NukeMax_OCIOColorTransform": "OCIO Color Transform"}
+# ── OCIOLogConvert + OCIODisplay ─────────────────────────────────────
+# Adapted from ComfyUI-ACES-IO — Copyright (c) 2025 Bishoy Samaan, MIT
+# License, https://github.com/BISAM20/ComfyUI-ACES-IO — reworked onto this
+# module's config discovery (models/ocio_configs + $OCIO), house IS_CHANGED
+# (never nan), and @resilient registration.
+
+
+@resilient
+class OCIOLogConvert:
+    """Scene-linear ↔ compositing-log via the config's roles (Nuke OCIOLogConvert)."""
+
+    DESCRIPTION = (
+        "Convert between the config's scene_linear and compositing_log roles "
+        "(ACES: ACEScg ↔ ACEScct) — mirrors Nuke's OCIOLogConvert."
+    )
+    CATEGORY = "NukeMax/Color"
+    FUNCTION = "execute"
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("image",)
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "image": ("IMAGE", {}),
+            "config": (_list_configs(), {}),
+            "operation": (("log_to_linear", "linear_to_log"), {"default": "log_to_linear"}),
+        }}
+
+    def execute(self, image: torch.Tensor, config: str, operation: str):
+        require_image_bhwc(image)
+        import PyOpenColorIO as OCIO  # type: ignore[import-not-found]
+        path = _resolve_config_path(config)
+        if not path:
+            raise FileNotFoundError(f"OCIO config not found for choice {config!r}.")
+        cfg = _load_config(path)
+        try:
+            lin = cfg.getRoleColorSpace(OCIO.ROLE_SCENE_LINEAR)
+            lg = cfg.getRoleColorSpace(OCIO.ROLE_COMPOSITING_LOG)
+        except Exception as exc:
+            raise ValueError(
+                "This config does not define the scene_linear and/or compositing_log "
+                f"roles needed by OCIOLogConvert: {exc}"
+            ) from exc
+        src, dst = (lg, lin) if operation == "log_to_linear" else (lin, lg)
+        return (_apply_processor(image, cfg.getProcessor(src, dst)),)
+
+
+@resilient
+class OCIODisplay:
+    """Bake a display+view transform into the image (Nuke OCIODisplay)."""
+
+    DESCRIPTION = (
+        "Apply the config's display/view pipeline (e.g. sRGB / ACES SDR video) "
+        "to a scene-referred image and bake it in — mirrors Nuke's OCIODisplay. "
+        "Set list_options to see the available displays and views."
+    )
+    CATEGORY = "NukeMax/Color"
+    FUNCTION = "execute"
+    RETURN_TYPES = ("IMAGE", "STRING")
+    RETURN_NAMES = ("image", "info_json")
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return hash_args_and_kwargs(**kwargs)
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "image": ("IMAGE", {}),
+            "config": (_list_configs(), {}),
+            "input_colorspace": ("STRING", {"default": "ACEScg"}),
+            "display": ("STRING", {"default": "", "tooltip": "Blank = config default display."}),
+            "view": ("STRING", {"default": "", "tooltip": "Blank = default view for the display."}),
+        }, "optional": {
+            "invert": ("BOOLEAN", {"default": False,
+                       "tooltip": "Display-referred back to input colorspace (roundtrips)."}),
+            "list_options": ("BOOLEAN", {"default": False,
+                             "tooltip": "Pass image through; emit displays/views in info_json."}),
+        }}
+
+    def execute(self, image: torch.Tensor, config: str, input_colorspace: str,
+                display: str, view: str, invert: bool = False, list_options: bool = False):
+        require_image_bhwc(image)
+        import json as _json
+        import PyOpenColorIO as OCIO  # type: ignore[import-not-found]
+        path = _resolve_config_path(config)
+        if not path:
+            raise FileNotFoundError(f"OCIO config not found for choice {config!r}.")
+        cfg = _load_config(path)
+        displays = list(cfg.getDisplays())
+        if list_options:
+            info = {d: list(cfg.getViews(d)) for d in displays}
+            return (image, _json.dumps({"config": path, "displays": info}, indent=2))
+        # Tolerate stale widget values across config swaps (ACES-IO behaviour):
+        # fall back to the config defaults rather than erroring.
+        d = display.strip() if display.strip() in displays else cfg.getDefaultDisplay()
+        views = list(cfg.getViews(d))
+        v = view.strip() if view.strip() in views else cfg.getDefaultView(d)
+        dv = OCIO.DisplayViewTransform()
+        dv.setSrc(input_colorspace.strip())
+        dv.setDisplay(d)
+        dv.setView(v)
+        if invert:
+            dv.setDirection(OCIO.TransformDirection.TRANSFORM_DIR_INVERSE)
+        try:
+            proc = cfg.getProcessor(dv)
+        except Exception as exc:
+            raise ValueError(
+                f"OCIODisplay failed (src={input_colorspace!r}, display={d!r}, "
+                f"view={v!r}, invert={invert}): {exc}. Available displays: {displays}"
+            ) from exc
+        out = _apply_processor(image, proc)
+        info = {"config": path, "display": d, "view": v, "invert": invert}
+        return (out, _json.dumps(info, indent=2))
+
+
+NODE_CLASS_MAPPINGS = {
+    "NukeMax_OCIOColorTransform": OCIOColorTransform,
+    "NukeMax_OCIOLogConvert": OCIOLogConvert,
+    "NukeMax_OCIODisplay": OCIODisplay,
+}
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "NukeMax_OCIOColorTransform": "OCIO Color Transform",
+    "NukeMax_OCIOLogConvert": "OCIO Log Convert (Nuke)",
+    "NukeMax_OCIODisplay": "OCIO Display (Nuke)",
+}
