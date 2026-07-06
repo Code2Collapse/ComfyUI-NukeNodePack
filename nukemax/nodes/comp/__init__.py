@@ -48,9 +48,23 @@ def _blur(img_bhwc, radius: int):
     return _bhwc(x)
 
 
+# Nuke Reformat "resize type" behaviour. The old node defaulted to a silent
+# non-uniform stretch ("none") and hardcoded a 3-channel black canvas (alpha
+# dropped, RGBA crashed). Now: distortion is explicit opt-in only, every other
+# mode preserves the source aspect exactly, channels are preserved, and the
+# target box can be driven by named cinema ratios or the input's own ratio.
+_REFORMAT_RATIOS = {
+    "1:1": 1.0, "4:3": 4 / 3, "3:2": 3 / 2, "16:9": 16 / 9,
+    "1.85:1": 1.85, "1.9:1": 1.9, "1.95:1": 1.95, "2:1": 2.0,
+    "2.35:1": 2.35, "2.39:1": 2.39,
+}
+
+
 @resilient
 class Reformat:
-    DESCRIPTION = "Resize an image to a target resolution with a chosen filter; optionally fit/fill while preserving aspect."
+    DESCRIPTION = ("Nuke-style Reformat: fit (letterbox), fill (crop), width, height, "
+                   "or explicit distort. Never distorts unless 'distort' is selected. "
+                   "Aspect presets (cinema ratios) or the input's own ratio can drive the target box.")
     CATEGORY = "NukeMax/Transform"
     FUNCTION = "execute"
     RETURN_TYPES = ("IMAGE",)
@@ -68,30 +82,72 @@ class Reformat:
             "width": ("INT", {"default": 1920, "min": 1, "max": 16384}),
             "height": ("INT", {"default": 1080, "min": 1, "max": 16384}),
             "filter": (("bilinear", "bicubic", "nearest", "area"), {"default": "bilinear"}),
-            "preserve_aspect": (("none", "fit", "fill"), {"default": "none",
-                                "tooltip": "none=stretch; fit=letterbox inside; fill=crop to fill."}),
+            # Legacy values "none"/"fit"/"fill" still load from old workflows:
+            # "none" is accepted as an alias of "distort" (that was its meaning).
+            # "none" kept last so pre-rewrite workflows still validate; it is
+            # the legacy name for distort.
+            "fit_mode": (("fit", "fill", "width", "height", "distort", "none"), {"default": "fit",
+                         "tooltip": "fit=letterbox (default, never distorts); fill=crop to fill; "
+                                    "width/height=match that edge, pad/crop the other; "
+                                    "distort=allow non-uniform scale (explicit opt-in)."}),
+        }, "optional": {
+            "aspect_preset": (("off", "from_input", "custom",
+                               *_REFORMAT_RATIOS.keys()), {"default": "off",
+                              "tooltip": "Overrides target height from width: named cinema ratio, "
+                                         "the input's own ratio (from_input), or custom W:H below."}),
+            "custom_ratio_w": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 100.0, "step": 0.001}),
+            "custom_ratio_h": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 100.0, "step": 0.001}),
+            "pad": (("black", "white", "transparent"), {"default": "black",
+                    "tooltip": "Letterbox/pillarbox fill. 'transparent' outputs RGBA."}),
         }}
 
-    def execute(self, image, width, height, filter, preserve_aspect):
+    def execute(self, image, width, height, filter, fit_mode,
+                aspect_preset="off", custom_ratio_w=1.0, custom_ratio_h=1.0, pad="black"):
         require_image_bhwc(image)
-        x = _bchw(image)
-        _, _, h0, w0 = x.shape
+        # Channel-preserving intake (module _bchw strips to RGB; Reformat must
+        # carry alpha through so RGBA sources survive letterboxing).
+        x = image.unsqueeze(0) if image.dim() == 3 else image
+        x = x.permute(0, 3, 1, 2).contiguous()
+        b, c, h0, w0 = x.shape
         tw, th = int(width), int(height)
+        # Aspect presets drive the target box's height from its width so odd
+        # sources (e.g. 4448x3840 = 1.158:1) are honoured exactly via
+        # from_input instead of being forced toward a named ratio.
+        if aspect_preset == "from_input":
+            th = max(1, round(tw * h0 / w0))
+        elif aspect_preset == "custom":
+            th = max(1, round(tw * float(custom_ratio_h) / max(1e-6, float(custom_ratio_w))))
+        elif aspect_preset in _REFORMAT_RATIOS:
+            th = max(1, round(tw / _REFORMAT_RATIOS[aspect_preset]))
         mode = filter
         kw = {} if mode in ("nearest", "area") else {"align_corners": False}
-        if preserve_aspect == "none":
+        if fit_mode in ("distort", "none"):   # "none" = legacy alias, explicit stretch
             out = F.interpolate(x, size=(th, tw), mode=mode, **kw)
-        else:
-            s = min(tw / w0, th / h0) if preserve_aspect == "fit" else max(tw / w0, th / h0)
-            rw, rh = max(1, round(w0 * s)), max(1, round(h0 * s))
-            r = F.interpolate(x, size=(rh, rw), mode=mode, **kw)
-            out = torch.zeros(x.shape[0], 3, th, tw, device=x.device, dtype=x.dtype)
-            # center fit (pad) or fill (crop)
-            oy, ox = (th - rh) // 2, (tw - rw) // 2
-            sy, sx = max(0, -oy), max(0, -ox)
-            dy, dx = max(0, oy), max(0, ox)
-            ch, cw = min(rh - sy, th - dy), min(rw - sx, tw - dx)
-            out[:, :, dy:dy + ch, dx:dx + cw] = r[:, :, sy:sy + ch, sx:sx + cw]
+            return (_bhwc(out).clamp(0, 1),)
+        # Uniform scale factor per mode; rendering is shared centre-placement
+        # (pads on underflow, crops on overflow — exactly Nuke's Reformat).
+        if fit_mode == "fill":
+            s = max(tw / w0, th / h0)
+        elif fit_mode == "width":
+            s = tw / w0
+        elif fit_mode == "height":
+            s = th / h0
+        else:                                  # "fit" (default)
+            s = min(tw / w0, th / h0)
+        rw, rh = max(1, round(w0 * s)), max(1, round(h0 * s))
+        r = F.interpolate(x, size=(rh, rw), mode=mode, **kw)
+        want_alpha = (pad == "transparent")
+        cc = 4 if want_alpha else c
+        out = torch.zeros(b, cc, th, tw, device=x.device, dtype=x.dtype)
+        if pad == "white":
+            out[:, :min(3, cc)] = 1.0
+        if want_alpha and c < 4:
+            r = torch.cat([r, torch.ones(b, 1, rh, rw, device=x.device, dtype=x.dtype)], dim=1)
+        oy, ox = (th - rh) // 2, (tw - rw) // 2
+        sy, sx = max(0, -oy), max(0, -ox)
+        dy, dx = max(0, oy), max(0, ox)
+        ch, cw = min(rh - sy, th - dy), min(rw - sx, tw - dx)
+        out[:, :r.shape[1], dy:dy + ch, dx:dx + cw] = r[:, :, sy:sy + ch, sx:sx + cw]
         return (_bhwc(out).clamp(0, 1),)
 
 
