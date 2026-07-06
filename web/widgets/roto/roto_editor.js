@@ -29,8 +29,24 @@ function createRotoWidget(node) {
         currentFrame: 0,
     };
 
-    // Find the hidden state widget (created from the Python INPUT_TYPES).
+    // Find the state widget (created from the Python INPUT_TYPES) and truly
+    // collapse it — the editor below authors it entirely; the raw JSON
+    // textarea is clutter. Value still serializes; the socket still works.
     const stateWidget = node.widgets.find(w => w.name === "spline_state");
+    if (stateWidget) {
+        stateWidget.type = "hidden";
+        stateWidget.computeSize = () => [0, -4];
+        stateWidget.hidden = true;
+        if (stateWidget.options) stateWidget.options.hidden = true;
+        setTimeout(() => {
+            const el = stateWidget.element || stateWidget.inputEl;
+            if (el) {
+                el.style.display = "none";
+                const wrap = el.parentElement;
+                if (wrap?.classList?.contains("dom-widget")) wrap.style.display = "none";
+            }
+        }, 0);
+    }
 
     const widget = {
         type: "custom",

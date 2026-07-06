@@ -48,6 +48,23 @@ function createLightRigWidget(node) {
         dragging: false,
     };
     const stateWidget = node.widgets.find(w => w.name === "rig_state");
+    // rig_state is authored entirely by the sphere widget below — the raw
+    // JSON textarea is clutter. Collapse it to a hidden state-carrier
+    // (value still serializes; wiring via its socket still works).
+    if (stateWidget) {
+        stateWidget.type = "hidden";
+        stateWidget.computeSize = () => [0, -4];
+        stateWidget.hidden = true;
+        if (stateWidget.options) stateWidget.options.hidden = true;
+        setTimeout(() => {
+            const el = stateWidget.element || stateWidget.inputEl;
+            if (el) {
+                el.style.display = "none";
+                const wrap = el.parentElement;
+                if (wrap?.classList?.contains("dom-widget")) wrap.style.display = "none";
+            }
+        }, 0);
+    }
 
     function sync() {
         if (!stateWidget) return;
