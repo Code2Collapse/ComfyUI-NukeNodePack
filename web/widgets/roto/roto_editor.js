@@ -65,6 +65,31 @@ function createRotoWidget(node) {
             ctx.fillStyle = _tok("--c2c-surface1", "#222");
             ctx.fillRect(x, y, w, h);
             const frame = state.frames[state.currentFrame] || { points: [] };
+            if (frame.points.length === 0) {
+                // Empty state: dark checkerboard artboard + centred hint —
+                // a flat grey void reads as "broken node". Literal colors:
+                // canvas fillStyle can't parse var(--x).
+                const tile = 24;
+                for (let ty = 0; ty < h; ty += tile) {
+                    for (let tx = 0; tx < w; tx += tile) {
+                        ctx.fillStyle = (((tx + ty) / tile) % 2 === 0) ? "#15151d" : "#1a1a24";
+                        ctx.fillRect(x + tx, y + ty, Math.min(tile, w - tx), Math.min(tile, h - ty));
+                    }
+                }
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillStyle = "rgba(148,158,190,0.55)";
+                ctx.font = "26px system-ui, sans-serif";
+                ctx.fillText("✎", x + w / 2, y + h / 2 - 26);
+                ctx.fillStyle = "rgba(168,178,208,0.78)";
+                ctx.font = "600 13px system-ui, sans-serif";
+                ctx.fillText("Click to place roto points", x + w / 2, y + h / 2 + 2);
+                ctx.fillStyle = "rgba(128,138,166,0.6)";
+                ctx.font = "11px system-ui, sans-serif";
+                ctx.fillText("Right-click removes the nearest point", x + w / 2, y + h / 2 + 20);
+                ctx.textAlign = "left";
+                ctx.textBaseline = "alphabetic";
+            }
             const sx = w / state.canvas.w;
             const sy = h / state.canvas.h;
             // Polyline
