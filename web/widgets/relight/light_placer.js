@@ -10,6 +10,7 @@
 //   (-x, -y, -z) when projected.
 
 import { app } from "../../../../scripts/app.js";
+import { installCanvasWidget } from "../_vue_canvas.js";
 
 const NODE_NAME = "NukeMax_LightRigBuilder";
 
@@ -184,7 +185,7 @@ function createLightRigWidget(node) {
     };
 
     sync();
-    node.addCustomWidget(widget);
+    installCanvasWidget(node, widget, 320);
     // Grow the node so the reserved 320px sphere row fits on creation.
     try {
         const sz = node.computeSize();

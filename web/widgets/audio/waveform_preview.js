@@ -6,6 +6,7 @@
 // preview helper so the user can confirm the file is loaded.
 
 import { app } from "../../../../scripts/app.js";
+import { installCanvasWidget } from "../_vue_canvas.js";
 
 const NODE_NAME = "NukeMax_AudioLoadAnalyze";
 
@@ -93,7 +94,7 @@ function createWaveformWidget(node) {
         },
     };
 
-    node.addCustomWidget(widget);
+    installCanvasWidget(node, widget, 96);
     // Grow the node so the reserved waveform row fits on creation.
     try {
         const sz = node.computeSize();

@@ -5,6 +5,7 @@
 // the workflow.
 
 import { app } from "../../../../scripts/app.js";
+import { installCanvasWidget } from "../_vue_canvas.js";
 
 const NODE_NAME = "NukeMax_RotoSplineEditor";
 
@@ -159,7 +160,7 @@ function createRotoWidget(node) {
     }
 
     sync();
-    node.addCustomWidget(widget);
+    installCanvasWidget(node, widget, 320);   // classic path unchanged; adds Vue DOM canvas
     // Grow the node so the freshly-reserved 320px editor row fits on creation
     // (computeSize now includes it; without this the node opened at ~200px).
     try {
