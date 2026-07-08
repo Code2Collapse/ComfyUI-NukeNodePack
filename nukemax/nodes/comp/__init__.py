@@ -380,3 +380,14 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "NukeMax_Glow": "Glow (NukeMax)",
     "NukeMax_ErodeDilate": "Erode/Dilate (NukeMax)",
 }
+# PAR round-trip (anamorphic ↔ square pixels) — guarded like every group.
+try:
+    from .pixel_aspect import (
+        NODE_CLASS_MAPPINGS as _PAR_C,
+        NODE_DISPLAY_NAME_MAPPINGS as _PAR_D,
+    )
+    NODE_CLASS_MAPPINGS.update(_PAR_C)
+    NODE_DISPLAY_NAME_MAPPINGS.update(_PAR_D)
+except Exception as _par_exc:  # pragma: no cover
+    import logging as _lg
+    _lg.getLogger("nukemax").warning("[NukeMax] pixel_aspect not registered: %s", _par_exc)
