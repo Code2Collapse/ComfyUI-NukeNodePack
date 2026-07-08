@@ -61,6 +61,12 @@ function createRotoWidget(node) {
         draw(ctx, node, widget_width, y, widget_height) {
             const x = 0;
             const w = widget_width;
+            // Record the ACTUAL drawn geometry so mouse() maps clicks with the
+            // same width/origin the draw used. LiteGraph hands mouse() a
+            // NODE-local pos (pos[1] includes this widget's y offset) and the
+            // real drawn width differs from the stale widget.size[0], so
+            // without this the click lands offset (the reported bug).
+            widget._lw = w; widget._ly = y;
             const h = 320;
             ctx.save();
             ctx.fillStyle = _tok("--c2c-surface1", "#222");
@@ -119,12 +125,12 @@ function createRotoWidget(node) {
         },
         mouse(event, pos, node) {
             if (event.type !== "pointerdown") return false;
-            const w = widget.size?.[0] || 320;
+            const w = widget._lw || widget.size?.[0] || 320;
             const h = 320;
             const sx = state.canvas.w / w;
             const sy = state.canvas.h / h;
             const px = pos[0] * sx;
-            const py = pos[1] * sy;
+            const py = (pos[1] - (widget._ly || 0)) * sy;   // subtract widget top → widget-local Y
             const frame = state.frames[state.currentFrame];
             // Right-click removes nearest; left-click adds.
             if (event.button === 2) {

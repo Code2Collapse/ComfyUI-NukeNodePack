@@ -84,6 +84,10 @@ function createLightRigWidget(node) {
         computeSize(width) { return [width || 320, 320]; },
         draw(ctx, node, w, y, h) {
             const size = 320;
+            // Record drawn geometry so mouse() maps NODE-local clicks to the
+            // same width/origin (LiteGraph's pos includes the widget y offset;
+            // real width ≠ stale widget.size[0]) — fixes the click offset.
+            widget._lw = w; widget._ly = y;
             const cx = w / 2;
             const cy = y + size / 2;
             const r = size * 0.45;
@@ -132,12 +136,12 @@ function createLightRigWidget(node) {
         },
         mouse(event, pos, node) {
             const size = 320;
-            const w = widget.size?.[0] || 320;
+            const w = widget._lw || widget.size?.[0] || 320;
             const cx = w / 2;
             const cy = size / 2;
             const r = size * 0.45;
             const dx = pos[0] - cx;
-            const dy = pos[1] - cy;
+            const dy = (pos[1] - (widget._ly || 0)) - cy;   // subtract widget top → widget-local Y
             const dist = Math.sqrt(dx * dx + dy * dy);
             if (event.type === "pointerdown") {
                 if (event.button === 2) {

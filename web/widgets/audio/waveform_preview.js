@@ -67,6 +67,35 @@ function createWaveformWidget(node) {
             ctx.save();
             ctx.fillStyle = "#1a1a22";
             ctx.fillRect(0, y, w, height);
+            if (!state.loaded) {
+                // Empty state — a clear centered invitation instead of a flat
+                // dark block that reads as an unfinished node. Faint baseline
+                // ticks hint at the waveform strip.
+                ctx.strokeStyle = "#22222c";
+                ctx.beginPath();
+                ctx.moveTo(0, y + height / 2); ctx.lineTo(w, y + height / 2);
+                ctx.stroke();
+                ctx.fillStyle = "#2a2a34";
+                for (let i = 0; i < 48; i++) {
+                    const bx = (i + 0.5) * (w / 48);
+                    ctx.fillRect(bx - 1, y + height / 2 - 3, 2, 6);
+                }
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillStyle = "rgba(168,178,208,0.75)";
+                ctx.font = "600 12px system-ui, sans-serif";
+                ctx.fillText("♪  Audio waveform preview", w / 2, y + height / 2 - 8);
+                ctx.fillStyle = "rgba(128,138,166,0.6)";
+                ctx.font = "11px system-ui, sans-serif";
+                ctx.fillText(state.path ? "preview unavailable (server-side load only)"
+                                        : "set the 'path' field to preview the waveform",
+                             w / 2, y + height / 2 + 12);
+                ctx.textAlign = "left";
+                ctx.textBaseline = "alphabetic";
+                ctx.restore();
+                loadPreview();
+                return;
+            }
             // Center line
             ctx.strokeStyle = "#2a2a32";
             ctx.beginPath();
@@ -76,7 +105,7 @@ function createWaveformWidget(node) {
             // Bars
             const N = state.bars.length;
             const bw = w / N;
-            ctx.fillStyle = state.loaded ? "#5cf" : "#444";
+            ctx.fillStyle = "#5cf";
             for (let i = 0; i < N; i++) {
                 const v = state.bars[i];
                 const bh = Math.max(1, v * (height - 8));
@@ -85,10 +114,7 @@ function createWaveformWidget(node) {
             // Label
             ctx.fillStyle = "#aaa";
             ctx.font = "10px monospace";
-            const label = state.loaded
-                ? `${state.path.split(/[\\/]/).pop() || ""}  ${state.duration.toFixed(2)}s`
-                : (state.path ? "preview unavailable (server-side load only)" : "set 'path' to preview");
-            ctx.fillText(label, 6, y + 12);
+            ctx.fillText(`${state.path.split(/[\\/]/).pop() || ""}  ${state.duration.toFixed(2)}s`, 6, y + 12);
             ctx.restore();
             loadPreview();
         },
