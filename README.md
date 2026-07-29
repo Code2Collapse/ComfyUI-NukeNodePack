@@ -1,5 +1,14 @@
 # ComfyUI-NukeMaxNodes
 
+> ### 📖 Full node & parameter reference
+> **[NODE_REFERENCE.md](NODE_REFERENCE.md)** documents **every node in this pack**:
+> each input's type, default, valid range and what it actually does, plus every
+> output. It is generated directly from the live `NODE_CLASS_MAPPINGS`, so the
+> descriptions there are the *same strings* you see as tooltips in ComfyUI and
+> cannot drift out of date. Start there when you want to know what a knob does;
+> read on here for how the pieces fit together.
+
+
 > **Trademark Notice**: "Nuke" is a registered trademark of **The Foundry Visionmongers Ltd**.
 > This project is an independent open-source ComfyUI node pack and is **not affiliated with,
 > endorsed by, or associated with The Foundry or its Nuke software** in any way.
