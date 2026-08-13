@@ -7,8 +7,18 @@ comp never needs a round-trip to Nuke for the basics:
   Filter:   Sharpen, Median
   Generate: Constant, CheckerBoard, ColorBars, Ramp
 
-All ops are pure-torch on [B,H,W,C] float 0..1 tensors (no extra deps), matching
-the existing NukeMax node style (resilient, alpha-preserving, hashed IS_CHANGED).
+All ops are pure-torch on [B,H,W,C] **linear float** tensors (no extra deps),
+matching the existing NukeMax node style (resilient, alpha-preserving, hashed
+IS_CHANGED).
+
+Linear-float contract (PROCESS_PLATE.md section 3), applied Aug 2026: these
+operators no longer clamp their colour output to 0..1. A 12.5 specular stays
+12.5 through Grade/Merge/Transform/Blur instead of being flattened to white,
+which is what a linear EXR pipeline requires. Grade carries Nuke's own
+`black_clamp` / `white_clamp` switches (both off by default, as in Nuke) for
+the cases where you genuinely do want a hard limit. Mattes and MASK outputs
+are still bounded to 0..1 — that is a matte's definition, not a display
+convenience.
 """
 from __future__ import annotations
 
@@ -20,6 +30,38 @@ from ..._tensor_util import require_image_bhwc
 from ..._is_changed_util import hash_args_and_kwargs
 
 _LUMA = (0.2126, 0.7152, 0.0722)
+
+
+def _gamma(x, g):
+    """Nuke gamma: x^(1/g) for x > 0, pass through for x <= 0. HDR-safe."""
+    g = float(g)
+    if g == 1.0:
+        return x
+    return torch.where(x > 0, x.clamp(min=0) ** (1.0 / max(1e-6, g)), x)
+
+
+def _match_hw(src, ref, mode="bilinear"):
+    """Resample src [B,H,W,C] to ref's H,W without touching its channel count."""
+    if src.shape[1:3] == ref.shape[1:3]:
+        return src
+    kw = {} if mode in ("nearest", "area") else {"align_corners": False}
+    return F.interpolate(src.permute(0, 3, 1, 2), size=tuple(ref.shape[1:3]),
+                         mode=mode, **kw).permute(0, 2, 3, 1).contiguous()
+
+
+def _mask_1c(mask, ref):
+    """MASK [B,H,W] (or [B,H,W,1]) -> [B,H,W,1] matched to ref's H,W and batch."""
+    m = mask.unsqueeze(-1) if mask.dim() == 3 else mask[..., :1]
+    m = m.to(device=ref.device, dtype=ref.dtype)
+    m = _match_hw(m, ref)
+    if m.shape[0] != ref.shape[0]:
+        if m.shape[0] != 1:
+            raise ValueError(
+                f"mask has {m.shape[0]} frames but the image has {ref.shape[0]}. "
+                f"Use a single mask frame (auto-broadcast) or matching frame counts."
+            )
+        m = m.expand(ref.shape[0], *m.shape[1:])
+    return m
 
 
 # ───────────────────────── helpers ─────────────────────────

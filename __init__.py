@@ -53,6 +53,14 @@ _ECOSYSTEMS = (
     # Position/ContactSheet/AppendClip (transform), Text/Grid/Vignette (generate),
     # ChannelMixer/HistEQ (color).
     ".nukemax.nodes.essentials3",
+    # Comp-operator tier (Aug 2026): linear-float Grade / Transform+Filter /
+    # Merge+Keying operators that the essentials batches did not cover.
+    ".nukemax.nodes.nuke_grade",
+    ".nukemax.nodes.nuke_transform",
+    ".nukemax.nodes.nuke_merge",
+    # Colour tier (Aug 2026): camera log curves + derived gamut matrices +
+    # .cube LUTs + the OCIO CDL/File/Look transforms and config introspection.
+    ".nukemax.nodes.ocio_color",
 )
 
 for mod_name in _ECOSYSTEMS:

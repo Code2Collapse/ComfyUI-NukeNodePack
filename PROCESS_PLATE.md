@@ -13,11 +13,24 @@ contract between sessions.
 |---|---|---|---|
 | 1a | `LoadEXRMEC` via OpenImageIO | **DONE** | CNP main `881f06b` |
 | 1b | `SaveEXRMEC` via OIIO — compression, bit depth, AOV write, metadata | **DONE** | CNP `e2a6dcf` |
-| 1c | Channel/AOV shuffle + metadata nodes (NEXT) | not started | — |
-| 2 | OCIO colour tier (12 OCIO + colour half of radiance) | not started | — |
-| 3 | Grade tier | not started | — |
-| 4 | Transform / Filter tier | not started | — |
-| 5 | Merge / Keying tier | not started | — |
+| 1c | Channel/AOV shuffle + metadata nodes | not started | — |
+| 2 | OCIO colour tier — CameraLogConvert, CameraGamutConvert, ColorMatrix, LUTApply, OCIOCDLTransform, OCIOFileTransform, OCIOLookTransform, OCIOConfigInfo | **DONE** | NukeMax (this session) |
+| 3 | Grade tier — ColorLookup, SoftClip, HueCorrect | **DONE** | NukeMax (this session) |
+| 4 | Transform/Filter tier — MotionBlur, Matrix, FrameHold | **DONE** | NukeMax (this session) |
+| 5 | Merge/Keying tier — Copy, HueKeyer | **DONE** | NukeMax (this session) |
+
+**Batch 2-5 verification:** 12/12 functional checks pass (log round-trip,
+gamut identity, matrix identity, lookup identity, SoftClip asymptote,
+FrameHold freeze, Matrix identity kernel, Copy channel routing, HueKeyer
+matte range, HDR/negative preservation). Measured, not read from code.
+Shared helpers: `_comp_linear.py` (linear-float ops), `_primaries.py`
+(derived gamut matrices), `_curves.py` (camera log curves), `_cube.py`
+(.cube LUT parser). essentials/__init__.py updated to the linear-float
+contract (no colour clamping; mattes still bounded 0..1).
+
+**Still open:** 1c (Channel/AOV shuffle + metadata nodes) — the AOV
+plumbing becomes usable in a graph rather than just correct at the file
+boundary.
 
 **Target pack for ALL of it:** `ComfyUI-NukeMaxNodes`.
 Exception already shipped: `LoadEXRMEC` lives in `ComfyUI-CustomNodePacks/nodes/exr_io.py`
