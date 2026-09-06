@@ -1,5 +1,4 @@
 """
-from ... import _interrupt_check as _IC
 Plate-tools nodes (C2C):
   - GrainMatchMEC: Extract grain spectrum from a reference plate and re-apply
     it to a clean image so synthetic content matches the source plate.
@@ -12,7 +11,9 @@ Plate-tools nodes (C2C):
 
 cv2 is optional; degraded fallbacks are provided.
 """
+
 from __future__ import annotations
+from ... import _interrupt_check as _IC
 
 import json
 import logging

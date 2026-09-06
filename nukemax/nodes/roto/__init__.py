@@ -84,9 +84,14 @@ class RotoSplineEditor:
         hout = torch.zeros(T, N, 2)
         feather = torch.zeros(T, N)
         for i, f in enumerate(frames):
-            pts[i] = torch.tensor(f["points"], dtype=torch.float32)
-            hin[i] = torch.tensor(f.get("in", f["points"]), dtype=torch.float32)
-            hout[i] = torch.tensor(f.get("out", f["points"]), dtype=torch.float32)
+            # .reshape(-1, 2) matters when a frame has NO points: torch.tensor([])
+            # is shape (0,), and assigning it into the (0,2) slot raised
+            # "expanded size of the tensor (2) must match the existing size (0)".
+            # A cleared shape is legitimate editor state - the renderer returns an
+            # empty mask for it - so this must not crash.
+            pts[i] = torch.tensor(f["points"], dtype=torch.float32).reshape(-1, 2)
+            hin[i] = torch.tensor(f.get("in", f["points"]), dtype=torch.float32).reshape(-1, 2)
+            hout[i] = torch.tensor(f.get("out", f["points"]), dtype=torch.float32).reshape(-1, 2)
             fe = f.get("feather", [0.0] * N)
             feather[i] = torch.tensor(fe, dtype=torch.float32)
         return (RotoShape(points=pts, handles_in=hin, handles_out=hout, feather=feather,
@@ -302,11 +307,27 @@ class RotoShapeRenderer:
 
     def execute(self, roto: RotoShape, samples_per_segment: int, feather_override: float,
                 flow=None, motion_blur_strength: float = 0.0):
+        # A shape with NO POINTS covers nothing - that is an empty mask at the
+        # requested canvas size, not an error. Previously this reached
+        # shape_to_polyline and died reshaping an empty tensor to (N,2)
+        # ("expanded size of the tensor (2) must match the existing size (0)"),
+        # which @resilient swallowed into a fallback mask. The P0 loudness change
+        # (on_error now raises by default) surfaced it as a real crash.
+        n_pts = int(roto.points.shape[-2]) if roto.points.ndim >= 2 else 0
+        if n_pts == 0:
+            t = int(roto.points.shape[0]) if roto.points.ndim >= 3 else 1
+            return (torch.zeros(max(1, t), roto.canvas_h, roto.canvas_w, dtype=torch.float32),)
+
         polyline = splines.shape_to_polyline(
             roto.points, roto.handles_in, roto.handles_out,
             closed=roto.closed, samples_per_segment=samples_per_segment,
         )
-        feather = feather_override if feather_override >= 0 else float(roto.feather.mean().item())
+        # .mean() of an empty feather tensor is NaN, which then poisons the SDF.
+        feather = (
+            feather_override
+            if feather_override >= 0
+            else (float(roto.feather.mean().item()) if roto.feather.numel() else 0.0)
+        )
         mask = splines.rasterize_polygon_sdf(
             polyline, H=roto.canvas_h, W=roto.canvas_w, feather=feather, closed=roto.closed,
         )  # (T,H,W)

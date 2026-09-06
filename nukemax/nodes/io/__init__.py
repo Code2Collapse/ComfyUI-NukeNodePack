@@ -1,8 +1,10 @@
 """EXR I/O nodes (migrated from ComfyUI-CustomNodePacks)."""
-from .exr_io import (
-    NODE_CLASS_MAPPINGS as _EXRIO_C,
-    NODE_DISPLAY_NAME_MAPPINGS as _EXRIO_D,
-)
+# exr_io (LoadEXRMEC / SaveEXRMEC) is owned by ComfyUI-CustomNodePacks.
+# Its OpenImageIO backend is the only EXR path that works in this environment
+# (cv2 cannot read EXR here), and its SaveEXRMEC is the 6-input superset with
+# compression / metadata_json / aov_alpha. The 229-line copy that lived here was
+# the shadowed duplicate and is deleted; NukeMax keeps its own Nuke-parity
+# EXRSequenceLoad / EXRSequenceSave / EXRChannelRouter, which do not import it.
 from .exr_metadata_reader import (
     NODE_CLASS_MAPPINGS as _EXRMETA_C,
     NODE_DISPLAY_NAME_MAPPINGS as _EXRMETA_D,
@@ -16,5 +18,5 @@ from .exr_sequence import (
     NODE_DISPLAY_NAME_MAPPINGS as _EXRSEQ_D,
 )
 
-NODE_CLASS_MAPPINGS = {**_EXRIO_C, **_EXRMETA_C, **_EXRROUTER_C, **_EXRSEQ_C}
-NODE_DISPLAY_NAME_MAPPINGS = {**_EXRIO_D, **_EXRMETA_D, **_EXRROUTER_D, **_EXRSEQ_D}
+NODE_CLASS_MAPPINGS = {**_EXRMETA_C, **_EXRROUTER_C, **_EXRSEQ_C}
+NODE_DISPLAY_NAME_MAPPINGS = {**_EXRMETA_D, **_EXRROUTER_D, **_EXRSEQ_D}
