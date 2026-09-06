@@ -21,6 +21,13 @@ import torch
 # Must be set before cv2 is imported or its EXR support stays disabled.
 os.environ.setdefault("OPENCV_IO_ENABLE_OPENEXR", "1")
 
+_CV2_EXR_HINT = (
+    "OpenCV only handles EXR when OPENCV_IO_ENABLE_OPENEXR=1 is set BEFORE cv2 is "
+    "first imported anywhere in the process. If another extension imported cv2 "
+    "first, set that variable in the environment before starting ComfyUI, or "
+    "install the OpenEXR bindings instead."
+)
+
 try:
     import OpenEXR  # type: ignore[import-not-found]
     import Imath    # type: ignore[import-not-found]
@@ -52,6 +59,24 @@ _PRORES_PROFILES = {
 }
 
 
+def _require_cv2():
+    """cv2 is the EXR fallback used when the OpenEXR bindings are absent.
+
+    A bare `import cv2` here surfaced a raw ModuleNotFoundError, and cv2.imwrite
+    signals failure by RETURNING False rather than raising, so a failed EXR write
+    was silent. Both are routed through this helper instead.
+    """
+    try:
+        import cv2  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise ImportError(
+            "Reading or writing EXR needs either the OpenEXR bindings or OpenCV, "
+            "and neither is installed. Install one of them: "
+            "'pip install OpenEXR' or 'pip install opencv-python'."
+        ) from exc
+    return cv2
+
+
 # ── EXR single-frame helpers ─────────────────────────────────────────
 
 
@@ -69,13 +94,16 @@ def _save_exr_frame(img_hwc: np.ndarray, path: str, use_half: bool, compression_
         out.writePixels({ch: img_hwc[:, :, i].astype(dt).tobytes() for i, ch in enumerate(names)})
         out.close()
         return
-    import cv2
+    cv2 = _require_cv2()
     if C == 3:
-        cv2.imwrite(path, img_hwc[:, :, ::-1].astype(np.float32))
+        buf = img_hwc[:, :, ::-1]
     elif C == 4:
-        cv2.imwrite(path, img_hwc[:, :, [2, 1, 0, 3]].astype(np.float32))
+        buf = img_hwc[:, :, [2, 1, 0, 3]]
     else:
-        cv2.imwrite(path, img_hwc.astype(np.float32))
+        buf = img_hwc
+    # imwrite reports failure by returning False, never by raising.
+    if not cv2.imwrite(path, buf.astype(np.float32)):
+        raise IOError("Could not write " + repr(path) + " via OpenCV. " + _CV2_EXR_HINT)
 
 
 def _load_exr_frame(path: str) -> torch.Tensor:
@@ -91,10 +119,10 @@ def _load_exr_frame(path: str) -> torch.Tensor:
         img = np.stack([np.frombuffer(f.channel(c, PT), dtype=np.float32).reshape(H, W)
                         for c in ordered], axis=-1)
         return torch.from_numpy(img.copy()).unsqueeze(0)
-    import cv2
+    cv2 = _require_cv2()
     img = cv2.imread(path, cv2.IMREAD_UNCHANGED | cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
     if img is None:
-        raise IOError(f"cv2 could not read {path!r}")
+        raise IOError("OpenCV could not read " + repr(path) + ". " + _CV2_EXR_HINT)
     img = img.astype(np.float32)
     if img.ndim == 2:
         img = img[:, :, None]

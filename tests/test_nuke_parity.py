@@ -54,8 +54,8 @@ for _eco in (_roto_eco, _fft_eco, _relight_eco, _audio_eco, _flow_eco, _edges_ec
 ALL_NODES = list(NODE_CLASS_MAPPINGS.items())
 
 
-def test_pack_registers_47_nodes():
-    assert len(NODE_CLASS_MAPPINGS) == 47
+def test_pack_registers_57_nodes():
+    assert len(NODE_CLASS_MAPPINGS) == 57   # was 47; 10 nodes added since, stale constant
 
 
 def test_every_key_uses_nukemax_prefix():
@@ -104,26 +104,87 @@ def test_node_input_types_well_formed(key, cls):
 
 
 @pytest.mark.parametrize("key,cls", ALL_NODES)
-def test_resilient_decorator_catches_errors(key, cls):
-    """Forcing the bound method to raise should still produce a tuple of
-    the declared length (resilience contract).
+def test_resilient_rejects_bad_input_instead_of_emitting_black(key, cls):
+    """Nonsense INPUT must RAISE, not return a zeroed tuple.
+
+    This test previously asserted the opposite: that passing None for every
+    argument produced a tuple of zeros and never raised. That contract meant a
+    missing LUT file, malformed metadata JSON or a mis-shaped socket returned a
+    BLACK FRAME from `_zero_for` while the comp continued - on a 200-frame render
+    that surfaces at review, which is worse than a hard stop AND worse than a
+    passthrough.
+
+    `@resilient` now re-raises `INPUT_VALIDATION_ERRORS` (resilience.py) and still
+    absorbs genuine runtime faults, so the graph-never-crashes contract survives
+    for the case it was written for. The test is INVERTED rather than repaired
+    because it was pinning the defect, not guarding against it.
     """
+    # KNOWN P0 SILENT-BLACK DEFECTS - tracked in the worklog as a P0 follow-up.
+    #
+    # These nodes dereference None (AttributeError) instead of validating their
+    # inputs, so @resilient's RUNTIME path catches it and returns a zeroed pixel
+    # tuple with no marker: a black frame that renders happily and is only noticed
+    # at review. AttributeError is deliberately NOT in INPUT_VALIDATION_ERRORS -
+    # widening it pack-wide would convert genuine runtime bugs into hard failures
+    # across all 181 nodes. The real fix is per-node input validation.
+    #
+    # This list is STRICT IN BOTH DIRECTIONS, which pytest.xfail() cannot do
+    # (imperative xfail can never XPASS): a node that starts behaving fails here
+    # and must be removed from the list, and a node that starts misbehaving fails
+    # because it is not on it. The list may only ever shrink.
+    # EMPTY, and it must stay that way.
+    #
+    # This list held 10 nodes that returned a BLACK frame on bad input: they
+    # dereferenced None, @resilient swallowed the AttributeError and emitted a
+    # zeroed tuple. The P0 loudness fix made `on_error="raise"` the DEFAULT, so
+    # all 10 now stop the queue instead. Cleared 2026-08-29.
+    #
+    # Still strict in both directions: a node added here must carry a worklog
+    # entry, and a node that starts behaving fails until it is removed. The list
+    # may only ever shrink.
+    KNOWN_SILENT_BLACK: set[str] = set()
+
     inst = cls()
     fn = getattr(inst, cls.FUNCTION)
+    sig = inspect.signature(fn)
+    kwargs = {name: None for name in sig.parameters if name != "self"}
+    if not kwargs:
+        pytest.skip(f"{key}.{cls.FUNCTION} takes no arguments to invalidate")
 
-    # Invoke with garbage args; @resilient should catch and return zeros.
     try:
-        sig = inspect.signature(fn)
-        kwargs = {}
-        for name, p in sig.parameters.items():
-            if name == "self":
-                continue
-            kwargs[name] = None  # nonsense
         out = fn(**kwargs)
-    except Exception as exc:  # pragma: no cover
-        pytest.fail(f"{key}.{cls.FUNCTION} raised through resilient: {exc}")
-    assert isinstance(out, tuple)
-    assert len(out) == len(cls.RETURN_TYPES)
+    except Exception:
+        assert key not in KNOWN_SILENT_BLACK, (
+            f"{key} now RAISES on bad input - the P0 fix has landed for it. "
+            f"REMOVE it from KNOWN_SILENT_BLACK."
+        )
+        return          # correct: bad input stopped the queue
+
+    assert isinstance(out, tuple) and len(out) == len(cls.RETURN_TYPES)
+
+    # Degrading is still allowed, but not SILENTLY, and the defect being guarded
+    # is specifically a zeroed PIXEL output - a black frame that renders happily
+    # and is only noticed at review. A serializer handed None honestly emits
+    # "null"; that is not a black frame and requiring it to raise would be
+    # inventing a rule, so the strict check is scoped to tensor outputs.
+    pixel_types = {"IMAGE", "MASK", "LATENT"}
+    emits_pixels = any(t.upper() in pixel_types for t in cls.RETURN_TYPES)
+    if not emits_pixels:
+        return
+
+    reported = any(isinstance(v, str) and v.startswith("ERROR:") for v in out)
+    if key in KNOWN_SILENT_BLACK:
+        assert not reported, (
+            f"{key} now reports its error - the P0 fix has landed for it. "
+            f"REMOVE it from KNOWN_SILENT_BLACK so the list keeps shrinking."
+        )
+        return
+    assert reported, (
+        f"{key}.{cls.FUNCTION} swallowed nonsense input and returned zeroed pixel "
+        f"outputs {list(cls.RETURN_TYPES)} with no ERROR: marker. That is a black "
+        f"frame the operator only discovers at review. Fix its input validation, "
+        f"or add it to KNOWN_SILENT_BLACK with a worklog entry."
+    )
 
 
 # =============================================================================

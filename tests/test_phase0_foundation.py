@@ -207,7 +207,14 @@ def test_polygon_circle_area_within_one_percent():
 
 # -------------------- Resilience decorator --------------------
 
-def test_resilient_returns_passthrough_on_error():
+def test_resilient_raises_by_default():
+    """P0 loudness: a bare @resilient must NOT swallow a runtime fault.
+
+    This test previously asserted the opposite - that any exception produced a
+    zeroed tuple. That default shipped BLACK frames: they render happily and are
+    only noticed at review. Degradation is now opt-in, so the default is a raise
+    and the queue stops where the fault happened.
+    """
     @resilient
     class _Boom:
         FUNCTION = "execute"
@@ -217,7 +224,51 @@ def test_resilient_returns_passthrough_on_error():
         def execute(self):
             raise RuntimeError("boom")
 
-    out = _Boom().execute()
+    with pytest.raises(RuntimeError, match="boom"):
+        _Boom().execute()
+
+
+def test_resilient_degrade_is_opt_in_and_visibly_marked():
+    """When a node DOES opt into degrading, the result must be unmistakable.
+
+    Black is not acceptable as an error value - it is a plausible picture. The
+    degraded IMAGE is magenta, the MASK is fully open, and EVERY string output
+    carries the error, not only ones named info/status/error/message.
+    """
+    @resilient(on_error="degrade")
+    class _Soft:
+        FUNCTION = "execute"
+        RETURN_TYPES = ("IMAGE", "MASK", "STRING")
+        RETURN_NAMES = ("image", "mask", "info")
+
+        def execute(self):
+            raise RuntimeError("boom")
+
+    out = _Soft().execute()
     assert isinstance(out, tuple) and len(out) == 3
-    assert out[0].shape[-1] == 3  # IMAGE in BHWC
+
+    img = out[0]
+    assert img.shape[-1] == 3, "IMAGE must stay BHWC"
+    r, g, b = (img[..., c].mean().item() for c in range(3))
+    assert (r, g, b) == (1.0, 0.0, 1.0), (
+        f"degraded IMAGE is {(r, g, b)}, expected magenta. A black frame is a "
+        "plausible picture and is what hid these failures."
+    )
+    assert out[1].min().item() == 1.0, "degraded MASK must be fully open, not empty"
     assert out[2].startswith("ERROR:")
+
+
+def test_class_attr_opts_into_degrade():
+    """ON_ERROR = "degrade" on the class is equivalent to the decorator argument."""
+    @resilient
+    class _Attr:
+        FUNCTION = "execute"
+        ON_ERROR = "degrade"
+        RETURN_TYPES = ("STRING",)
+        RETURN_NAMES = ("info",)
+
+        def execute(self):
+            raise RuntimeError("boom")
+
+    assert _Attr().execute()[0].startswith("ERROR:")
+
