@@ -11,6 +11,7 @@ import "./widgets/relight/light_placer.js";
 import "./widgets/audio/waveform_preview.js";
 import "./widgets/nkscript/copy_paste.js";
 import "./widgets/mocha/upload.js";
+import "./widgets/io/exr_preview.js";
 
 app.registerExtension({
     name: "NukeMax.Base",

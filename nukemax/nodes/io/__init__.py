@@ -20,3 +20,15 @@ from .exr_sequence import (
 
 NODE_CLASS_MAPPINGS = {**_EXRMETA_C, **_EXRROUTER_C, **_EXRSEQ_C}
 NODE_DISPLAY_NAME_MAPPINGS = {**_EXRMETA_D, **_EXRROUTER_D, **_EXRSEQ_D}
+
+# On-node EXR preview routes. Guarded and idempotent: importing this package
+# outside a running ComfyUI (the test harness does exactly that) must not fail,
+# so register_exr_preview_routes() returns quietly when `server` is absent.
+try:
+    from .exr_preview_server import register_exr_preview_routes as _register_exr_preview
+
+    _register_exr_preview()
+except Exception as _exc:  # noqa: BLE001
+    import logging as _logging
+
+    _logging.getLogger(__name__).info("NukeMax EXR preview routes not registered: %s", _exc)
