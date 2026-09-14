@@ -6,6 +6,7 @@ import { app } from "../../scripts/app.js";
 
 // Per-ecosystem widget modules. Each one self-registers via
 // app.registerExtension when imported.
+import "./widgets/_nukemax_kit.js";
 import "./widgets/roto/roto_editor.js";
 import "./widgets/relight/light_placer.js";
 import "./widgets/audio/waveform_preview.js";
