@@ -175,6 +175,10 @@ class EXRMetadataReaderMEC:
                     "default": False,
                     "tooltip": "Skip OpenEXR even if installed; useful for benchmarking.",
                 }),
+                "include_oiio_attrs": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "When off (default), legacy header only. When on, merge OIIO ImageSpec attributes.",
+                }),
             },
         }
 
@@ -193,7 +197,8 @@ class EXRMetadataReaderMEC:
         "decoding pixels. Uses OpenEXR if installed, otherwise pure-Python parser."
     )
 
-    def read(self, file_path: str, force_pure_python: bool = False):
+    def read(self, file_path: str, force_pure_python: bool = False,
+             include_oiio_attrs: bool = False):
         if not file_path or not os.path.isfile(file_path):
             raise FileNotFoundError(f"EXR not found: {file_path!r}")
 
@@ -214,6 +219,15 @@ class EXRMetadataReaderMEC:
         meta["library"] = used
         meta["file"] = os.path.basename(file_path)
         meta["bytes"] = os.path.getsize(file_path)
+
+        if include_oiio_attrs:
+            try:
+                from ...utils.sumit_io import read_image_oiio_spec
+                oiio_meta = read_image_oiio_spec(file_path)
+                if oiio_meta:
+                    meta["oiio"] = oiio_meta
+            except ImportError as exc:
+                meta["oiio_error"] = str(exc)
 
         # Extract convenience scalars (width/height from dataWindow box2i)
         width = 0

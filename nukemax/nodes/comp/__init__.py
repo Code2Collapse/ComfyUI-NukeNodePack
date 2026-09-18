@@ -99,10 +99,14 @@ class Reformat:
             "custom_ratio_h": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 100.0, "step": 0.001}),
             "pad": (("black", "white", "transparent"), {"default": "black",
                     "tooltip": "Letterbox/pillarbox fill. 'transparent' outputs RGBA."}),
+            "flip": ("BOOLEAN", {"default": False, "tooltip": "Mirror vertically (Nuke flip)."}),
+            "flop": ("BOOLEAN", {"default": False, "tooltip": "Mirror horizontally (Nuke flop)."}),
+            "turn": ("BOOLEAN", {"default": False, "tooltip": "Rotate 90° clockwise."}),
         }}
 
     def execute(self, image, width, height, filter, fit_mode,
-                aspect_preset="off", custom_ratio_w=1.0, custom_ratio_h=1.0, pad="black"):
+                aspect_preset="off", custom_ratio_w=1.0, custom_ratio_h=1.0, pad="black",
+                flip=False, flop=False, turn=False):
         require_image_bhwc(image)
         # Channel-preserving intake (module _bchw strips to RGB; Reformat must
         # carry alpha through so RGBA sources survive letterboxing).
@@ -122,8 +126,14 @@ class Reformat:
         mode = filter
         kw = {} if mode in ("nearest", "area") else {"align_corners": False}
         if fit_mode in ("distort", "none"):   # "none" = legacy alias, explicit stretch
-            out = F.interpolate(x, size=(th, tw), mode=mode, **kw)
-            return (_bhwc(out).clamp(0, 1),)
+            result = _bhwc(F.interpolate(x, size=(th, tw), mode=mode, **kw)).clamp(0, 1)
+            if turn:
+                result = torch.rot90(result, k=-1, dims=(1, 2))
+            if flop:
+                result = torch.flip(result, dims=(2,))
+            if flip:
+                result = torch.flip(result, dims=(1,))
+            return (result,)
         # Uniform scale factor per mode; rendering is shared centre-placement
         # (pads on underflow, crops on overflow — exactly Nuke's Reformat).
         if fit_mode == "fill":
@@ -148,7 +158,14 @@ class Reformat:
         dy, dx = max(0, oy), max(0, ox)
         ch, cw = min(rh - sy, th - dy), min(rw - sx, tw - dx)
         out[:, :r.shape[1], dy:dy + ch, dx:dx + cw] = r[:, :, sy:sy + ch, sx:sx + cw]
-        return (_bhwc(out).clamp(0, 1),)
+        result = _bhwc(out).clamp(0, 1)
+        if turn:
+            result = torch.rot90(result, k=-1, dims=(1, 2))
+        if flop:
+            result = torch.flip(result, dims=(2,))
+        if flip:
+            result = torch.flip(result, dims=(1,))
+        return (result,)
 
 
 @resilient
@@ -174,13 +191,41 @@ class Crop:
             "height": ("INT", {"default": 512, "min": 1, "max": 16384}),
             "keep_canvas": ("BOOLEAN", {"default": False,
                             "tooltip": "Keep original size and black out everything outside the box."}),
+        }, "optional": {
+            "use_normalized_crop": ("BOOLEAN", {"default": False,
+                "tooltip": "When off (default), x/y/width/height are pixels (legacy)."}),
+            "norm_left": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+            "norm_right": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+            "norm_top": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+            "norm_bottom": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+            "edge_softness": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 0.25, "step": 0.001,
+                "tooltip": "Soft edge feather in normalised coords; 0 = hard crop (legacy)."}),
         }}
 
-    def execute(self, image, x, y, width, height, keep_canvas):
+    def execute(self, image, x, y, width, height, keep_canvas,
+                use_normalized_crop=False, norm_left=0.0, norm_right=1.0,
+                norm_top=0.0, norm_bottom=1.0, edge_softness=0.0):
         require_image_bhwc(image)
         B, H, W, C = image.shape
-        x0, y0 = max(0, int(x)), max(0, int(y))
-        x1, y1 = min(W, x0 + int(width)), min(H, y0 + int(height))
+        if use_normalized_crop:
+            x0 = max(0, int(norm_left * W))
+            x1 = min(W, int(norm_right * W))
+            y0 = max(0, int(norm_top * H))
+            y1 = min(H, int(norm_bottom * H))
+            if edge_softness > 0:
+                yy = torch.linspace(0, 1, H, device=image.device, dtype=image.dtype)
+                xx = torch.linspace(0, 1, W, device=image.device, dtype=image.dtype)
+                yg, xg = torch.meshgrid(yy, xx, indexing="ij")
+                m = torch.ones(1, H, W, 1, device=image.device, dtype=image.dtype)
+                s = float(edge_softness)
+                m = m * ((xg - norm_left) / s).clamp(0, 1)
+                m = m * ((norm_right - xg) / s).clamp(0, 1)
+                m = m * ((yg - norm_top) / s).clamp(0, 1)
+                m = m * ((norm_bottom - yg) / s).clamp(0, 1)
+                return ((image * m).contiguous(),)
+        else:
+            x0, y0 = max(0, int(x)), max(0, int(y))
+            x1, y1 = min(W, x0 + int(width)), min(H, y0 + int(height))
         if x1 <= x0 or y1 <= y0:
             return (image,)
         if keep_canvas:

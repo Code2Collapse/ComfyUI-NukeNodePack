@@ -227,18 +227,40 @@ class Exposure:
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {"image": ("IMAGE", {}),
-                             "stops": ("FLOAT", {"default": 0.0, "min": -10.0, "max": 10.0, "step": 0.1})}}
+                             "stops": ("FLOAT", {"default": 0.0, "min": -10.0, "max": 10.0, "step": 0.1})},
+                "optional": {
+                    "exposure_mode": (("stops", "printer_lights", "film_density"), {
+                        "default": "stops",
+                        "tooltip": "Unit for the stops knob: f-stops, printer lights, or film density."}),
+                    "multiply": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.01}),
+                    "offset": ("FLOAT", {"default": 0.0, "min": -1.0, "max": 1.0, "step": 0.01}),
+                    "preserve_highlights": ("BOOLEAN", {"default": False,
+                        "tooltip": "When off (default), output is clamped 0–1 like the original node."}),
+                }}
 
-    def execute(self, image, stops):
+    def execute(self, image, stops, exposure_mode="stops", multiply=1.0, offset=0.0,
+                preserve_highlights=False):
         require_image_bhwc(image)
         rgb, alpha = _split(image)
-        return (_join((rgb * (2.0 ** float(stops))).clamp(0, 1), alpha),)
+        s = float(stops)
+        if exposure_mode == "printer_lights":
+            exp_mult = 10.0 ** (s / 25.0)
+        elif exposure_mode == "film_density":
+            exp_mult = 10.0 ** (-s)
+        else:
+            exp_mult = 2.0 ** s
+        out = rgb * exp_mult * float(multiply) + float(offset)
+        if not preserve_highlights:
+            out = out.clamp(0, 1)
+        return (_join(out, alpha),)
 
 
 # ───────────────────────── Merge ─────────────────────────
 _MERGE_OPS = ("over", "under", "atop", "in", "out", "mask", "stencil",
               "plus", "minus", "multiply", "screen", "overlay", "difference",
-              "max", "min", "average")
+              "max", "min", "average",
+              "soft_light", "hard_light", "color_dodge", "color_burn",
+              "darken", "lighten", "exclusion", "divide", "hypot", "xor", "matte", "copy")
 
 
 @resilient
@@ -263,9 +285,11 @@ class Merge:
             "operation": (_MERGE_OPS, {"default": "over"}),
             "mix": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01,
                     "tooltip": "Blend the merge result back toward B (1 = full merge)."}),
+        }, "optional": {
+            "mask": ("MASK", {"tooltip": "Optional matte modulating the mix factor."}),
         }}
 
-    def execute(self, A, B, operation, mix):
+    def execute(self, A, B, operation, mix, mask=None):
         require_image_bhwc(A); require_image_bhwc(B)
         # match B size to A
         if B.shape[1:3] != A.shape[1:3]:
@@ -292,8 +316,32 @@ class Merge:
         elif op == "difference": out = (a_rgb - b_rgb).abs()
         elif op == "max":     out = torch.maximum(a_rgb, b_rgb)
         elif op == "min":     out = torch.minimum(a_rgb, b_rgb)
+        elif op == "soft_light":
+            out = torch.where(b_rgb < 0.5, 2 * a_rgb * b_rgb + b_rgb ** 2 * (1 - 2 * a_rgb),
+                              2 * b_rgb * (1 - a_rgb) + torch.sqrt(b_rgb) * (2 * a_rgb - 1))
+        elif op == "hard_light":
+            out = torch.where(a_rgb < 0.5, 2 * a_rgb * b_rgb, 1 - 2 * (1 - a_rgb) * (1 - b_rgb))
+        elif op == "color_dodge":
+            out = torch.where(a_rgb >= 1.0, torch.ones_like(a_rgb), b_rgb / (1 - a_rgb + 1e-7))
+        elif op == "color_burn":
+            out = torch.where(a_rgb <= 0.0, torch.zeros_like(a_rgb), 1 - (1 - b_rgb) / (a_rgb + 1e-7))
+        elif op == "darken":  out = torch.minimum(a_rgb, b_rgb)
+        elif op == "lighten": out = torch.maximum(a_rgb, b_rgb)
+        elif op == "exclusion": out = a_rgb + b_rgb - 2 * a_rgb * b_rgb
+        elif op == "divide":  out = b_rgb / (a_rgb + 1e-7)
+        elif op == "hypot":   out = torch.sqrt(a_rgb ** 2 + b_rgb ** 2).clamp(0, 1)
+        elif op == "xor":
+            out = a_rgb * (1 - ba) + b_rgb * (1 - aa)
+        elif op == "matte":   out = a_rgb * aa
+        elif op == "copy":    out = a_rgb
         else:                 out = (a_rgb + b_rgb) * 0.5  # average
         m = float(mix)
+        if mask is not None:
+            mm = mask.unsqueeze(-1) if mask.dim() == 3 else mask
+            if mm.shape[1:3] != A.shape[1:3]:
+                mm = F.interpolate(mm.permute(0, 3, 1, 2), size=A.shape[1:3],
+                                   mode="bilinear", align_corners=False).permute(0, 2, 3, 1)
+            m = m * mm[..., :1]
         if m < 1.0:
             out = b_rgb * (1 - m) + out * m
         out = out.clamp(0, 1)
@@ -379,26 +427,62 @@ class Transform:
             "translate_y": ("FLOAT", {"default": 0.0, "min": -8192, "max": 8192, "step": 1}),
             "rotate": ("FLOAT", {"default": 0.0, "min": -360.0, "max": 360.0, "step": 0.1}),
             "scale": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 16.0, "step": 0.01}),
-            "filter": (("bilinear", "nearest", "bicubic"), {"default": "bilinear"}),
+            # NOTE: lanczos / keys / mitchell were briefly offered here and every
+            # one of them silently ran bicubic. F.grid_sample supports only
+            # nearest / bilinear / bicubic, and an arbitrary affine warp cannot
+            # use a separable kernel without a bespoke resampler. Offering a
+            # filter that quietly does something else is worse than not offering
+            # it - a compositor picking "lanczos" would be measuring a lie.
+            "filter": (("bilinear", "nearest", "bicubic"),
+                       {"default": "bilinear"}),
             "wrap": (("black", "edge", "reflection"), {"default": "black"}),
+        }, "optional": {
+            "center_x": ("FLOAT", {"default": -1.0, "min": -8192, "max": 8192, "step": 1,
+                         "tooltip": "-1 = image centre (legacy default)."}),
+            "center_y": ("FLOAT", {"default": -1.0, "min": -8192, "max": 8192, "step": 1}),
+            "skew_x": ("FLOAT", {"default": 0.0, "min": -89.0, "max": 89.0, "step": 0.1}),
+            "skew_y": ("FLOAT", {"default": 0.0, "min": -89.0, "max": 89.0, "step": 0.1}),
+            "scale_x": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 16.0, "step": 0.01}),
+            "scale_y": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 16.0, "step": 0.01}),
         }}
 
-    def execute(self, image, translate_x, translate_y, rotate, scale, filter, wrap):
+    def execute(self, image, translate_x, translate_y, rotate, scale, filter, wrap,
+                center_x=-1.0, center_y=-1.0, skew_x=0.0, skew_y=0.0,
+                scale_x=1.0, scale_y=1.0):
         require_image_bhwc(image)
         B, H, W, C = image.shape
         x = image.permute(0, 3, 1, 2)
         ang = torch.tensor(float(rotate) * 3.14159265 / 180.0)
         cos, sin = torch.cos(ang), torch.sin(ang)
-        s = 1.0 / max(1e-6, float(scale))
-        # normalized translate (grid is -1..1 over W/H)
         tx = -2.0 * float(translate_x) / W
         ty = -2.0 * float(translate_y) / H
-        theta = torch.tensor([[s * cos, s * sin, tx],
-                              [-s * sin, s * cos, ty]], dtype=x.dtype).unsqueeze(0).repeat(B, 1, 1)
-        grid = F.affine_grid(theta, x.shape, align_corners=False)
         pad = {"black": "zeros", "edge": "border", "reflection": "reflection"}[wrap]
-        out = F.grid_sample(x, grid.to(x.dtype), mode=filter if filter != "bicubic" else "bicubic",
-                            padding_mode=pad, align_corners=False)
+        legacy = (center_x < 0 and center_y < 0 and skew_x == 0.0 and skew_y == 0.0
+                  and scale_x == 1.0 and scale_y == 1.0)
+        if legacy:
+            s = 1.0 / max(1e-6, float(scale))
+            theta = torch.tensor([[s * cos, s * sin, tx],
+                                  [-s * sin, s * cos, ty]], dtype=x.dtype).unsqueeze(0).repeat(B, 1, 1)
+            mode = filter if filter != "bicubic" else "bicubic"
+        else:
+            sx = 1.0 / max(1e-6, float(scale) * float(scale_x))
+            sy = 1.0 / max(1e-6, float(scale) * float(scale_y))
+            cx = float(center_x) if center_x >= 0 else W * 0.5
+            cy = float(center_y) if center_y >= 0 else H * 0.5
+            skx = float(skew_x) * 3.14159265 / 180.0
+            sky = float(skew_y) * 3.14159265 / 180.0
+            tcx, tcy = 2.0 * cx / W - 1.0, 2.0 * cy / H - 1.0
+            tan_x, tan_y = torch.tan(torch.tensor(skx)), torch.tan(torch.tensor(sky))
+            a11 = sx * cos + tan_y * sx * sin
+            a12 = sx * sin
+            a21 = sy * sin + tan_x * sy * cos
+            a22 = sy * cos
+            theta = torch.tensor([[a11, a12, tx + tcx - (a11 * tcx + a12 * tcy)],
+                                  [a21, a22, ty + tcy - (a21 * tcx + a22 * tcy)]],
+                                 dtype=x.dtype).unsqueeze(0).repeat(B, 1, 1)
+            mode = filter if filter in ("nearest", "bilinear", "bicubic") else "bicubic"  # noqa: E501  (defensive: enum is already limited to these)
+        grid = F.affine_grid(theta, x.shape, align_corners=False)
+        out = F.grid_sample(x, grid.to(x.dtype), mode=mode, padding_mode=pad, align_corners=False)
         return (out.permute(0, 2, 3, 1).clamp(0, 1).contiguous(),)
 
 
@@ -611,16 +695,41 @@ class Ramp:
             "direction": (("horizontal", "vertical"), {"default": "horizontal"}),
             "start": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01}),
             "end": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+        }, "optional": {
+            "extended_pattern": (("off", "radial", "diagonal", "checkerboard"), {
+                "default": "off",
+                "tooltip": "When off, only horizontal/vertical (legacy). Otherwise overrides direction."}),
         }}
 
-    def execute(self, width, height, direction, start, end):
+    def execute(self, width, height, direction, start, end, extended_pattern="off"):
         W, H = int(width), int(height)
-        if direction == "horizontal":
-            t = torch.linspace(float(start), float(end), W).view(1, 1, W, 1)
-            out = t.repeat(1, H, 1, 3)
-        else:
-            t = torch.linspace(float(start), float(end), H).view(1, H, 1, 1)
-            out = t.repeat(1, 1, W, 3)
+        if extended_pattern == "off":
+            if direction == "horizontal":
+                t = torch.linspace(float(start), float(end), W).view(1, 1, W, 1)
+                out = t.repeat(1, H, 1, 3)
+            else:
+                t = torch.linspace(float(start), float(end), H).view(1, H, 1, 1)
+                out = t.repeat(1, 1, W, 3)
+            return (out.clamp(0, 1),)
+        y = torch.linspace(0, 1, H).view(-1, 1).expand(H, W)
+        x = torch.linspace(0, 1, W).view(1, -1).expand(H, W)
+        if extended_pattern == "horizontal":
+            ramp = x
+        elif extended_pattern == "vertical":
+            ramp = y
+        elif extended_pattern == "diagonal":
+            ramp = (x + y) * 0.5
+        elif extended_pattern == "radial":
+            cx, cy = W * 0.5, H * 0.5
+            yy = torch.arange(H, dtype=torch.float32).view(-1, 1) - cy
+            xx = torch.arange(W, dtype=torch.float32).view(1, -1) - cx
+            dist = torch.sqrt(xx ** 2 + yy ** 2)
+            ramp = (dist / dist.max().clamp(min=1e-6)).clamp(0, 1)
+        else:  # checkerboard
+            cs = max(1, min(W, H) // 8)
+            ramp = ((x * W // cs) % 2 + (y * H // cs) % 2) % 2
+        ramp = float(start) + ramp * (float(end) - float(start))
+        out = ramp.unsqueeze(0).unsqueeze(-1).repeat(1, 1, 1, 3)
         return (out.clamp(0, 1),)
 
 

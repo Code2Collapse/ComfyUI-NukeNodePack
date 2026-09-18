@@ -30,6 +30,7 @@ _ECOSYSTEMS = (
     ".nukemax.nodes.geometry_ext",
     ".nukemax.nodes.metadata",
     ".nukemax.nodes.color",
+    ".nukemax.nodes.viewer",
     # New (May 2026): deep compositing, shuffle, Nuke-style copy/paste.
     ".nukemax.nodes.deep",
     ".nukemax.nodes.shuffle",
