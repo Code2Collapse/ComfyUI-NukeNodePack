@@ -24,6 +24,7 @@ from . import (
     Light,
     AudioFeatures,
     FlowField,
+    NukePasses,
 )
 
 
@@ -37,6 +38,7 @@ _TYPE_REGISTRY = {
     "Light": Light,
     "AudioFeatures": AudioFeatures,
     "FlowField": FlowField,
+    "NukePasses": NukePasses,
 }
 
 
@@ -55,18 +57,30 @@ def _dec_tensor(s: str) -> torch.Tensor:
 def _enc_value(v: Any) -> Any:
     if isinstance(v, torch.Tensor):
         return {"__tensor__": _enc_tensor(v)}
+    if isinstance(v, dict):
+        if all(isinstance(k, str) for k in v.keys()) and all(
+            isinstance(x, torch.Tensor) for x in v.values()
+        ):
+            return {"__dict_tensor__": {k: _enc_value(x) for k, x in v.items()}}
+        return {k: _enc_value(x) for k, x in v.items()}
     if is_dataclass(v):
         return _to_dict(v)
     if isinstance(v, (list, tuple)):
         return [_enc_value(x) for x in v]
+    if isinstance(v, dict):
+        return {"__dict__": {str(k): _enc_value(val) for k, val in v.items()}}
     return v
 
 
 def _dec_value(v: Any) -> Any:
     if isinstance(v, dict) and "__tensor__" in v:
         return _dec_tensor(v["__tensor__"])
+    if isinstance(v, dict) and "__dict_tensor__" in v:
+        return {k: _dec_value(x) for k, x in v["__dict_tensor__"].items()}
     if isinstance(v, dict) and "__type__" in v:
         return _from_dict(v)
+    if isinstance(v, dict) and "__dict__" in v:
+        return {k: _dec_value(val) for k, val in v["__dict__"].items()}
     if isinstance(v, list):
         return [_dec_value(x) for x in v]
     return v
@@ -93,6 +107,8 @@ def _from_dict(d: dict) -> Any:
         for tk in ("position", "direction", "color"):
             if tk in kwargs:
                 kwargs[tk] = tuple(kwargs[tk])
+    if cls is NukePasses:
+        kwargs["channel_names"] = tuple(kwargs.get("channel_names", ()))
     return cls(**kwargs)
 
 

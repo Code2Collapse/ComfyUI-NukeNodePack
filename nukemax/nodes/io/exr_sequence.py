@@ -211,11 +211,24 @@ class EXRSequenceLoad:
             "end_frame": ("INT", {"default": -1, "min": -1, "max": 10_000_000,
                           "tooltip": "-1 = last detected frame"}),
             "every_nth": ("INT", {"default": 1, "min": 1, "max": 1000}),
+            "use_oiio_reader": ("BOOLEAN", {"default": False,
+                "tooltip": "When off (default), legacy EXR-only loader. When on, OIIO reads TIFF/PNG/DPX/etc."}),
         }}
 
-    def execute(self, path, missing_frames, start_frame=-1, end_frame=-1, every_nth=1):
+    def execute(self, path, missing_frames, start_frame=-1, end_frame=-1, every_nth=1,
+                use_oiio_reader=False):
         template, frames = _detect_sequence(path)
         if frames is None:
+            if use_oiio_reader:
+                from ...utils.sumit_io import read_image as _oiio_read
+                import numpy as _np
+                arr = _oiio_read(template)
+                if arr is None:
+                    raise FileNotFoundError(f"Could not read image: {template!r}")
+                t = torch.from_numpy(_np.ascontiguousarray(arr)).float().unsqueeze(0)
+                if t.shape[-1] == 1:
+                    t = t.repeat(1, 1, 1, 3)
+                return (t, 1, t.shape[2], t.shape[1])
             t = _load_exr_frame(template)
             return (t, 1, t.shape[2], t.shape[1])
         lo = frames[0] if start_frame < 0 else start_frame
@@ -269,9 +282,15 @@ class EXRSequenceSave:
                             {"default": next(iter(COMPRESSIONS))}),
         }, "optional": {
             "start_frame": ("INT", {"default": 1, "min": 0, "max": 10_000_000}),
+            "use_oiio_writer": ("BOOLEAN", {"default": False,
+                "tooltip": "When off (default), legacy OpenEXR writer. When on, OIIO writes multi-format."}),
+            "oiio_bit_depth": (("16f", "32f", "16", "8"), {"default": "16f"}),
+            "oiio_compression": ("STRING", {"default": "zip"}),
+            "passes": ("NUKE_PASSES", {"tooltip": "Optional multi-pass bundle; used only with use_oiio_writer."}),
         }}
 
-    def execute(self, image, output_dir, filename, bit_depth, compression, start_frame=1):
+    def execute(self, image, output_dir, filename, bit_depth, compression, start_frame=1,
+                use_oiio_writer=False, oiio_bit_depth="16f", oiio_compression="zip", passes=None):
         require_image_bhwc(image)
         os.makedirs(output_dir.strip(), exist_ok=True)
         use_half = "16f" in bit_depth
@@ -282,7 +301,39 @@ class EXRSequenceSave:
             if not base.lower().endswith(".exr"):
                 base += ".exr"
             last = os.path.join(output_dir.strip(), base)
-            _save_exr_frame(image[b].cpu().float().numpy(), last, use_half, compression)
+            if use_oiio_writer and passes is not None and getattr(passes, "passes", None):
+                from ...utils.sumit_multipass import channel_suffix_for_pass
+                from ...utils.sumit_io import write_image_oiio, _require_oiio
+                oiio = _require_oiio()
+                chans = []
+                names = []
+                ref_hw = None
+                for pname, tensor in passes.passes.items():
+                    t = tensor.cpu().float().numpy()
+                    if ref_hw is None:
+                        ref_hw = t.shape[:2]
+                    for ci in range(t.shape[-1]):
+                        chans.append(t[..., ci])
+                        suf = channel_suffix_for_pass(pname, t.shape[-1])
+                        names.append(f"{pname}.{suf[ci]}" if len(suf) > ci else f"{pname}.ch{ci}")
+                stacked = np.stack(chans, axis=-1)
+                oiio = _require_oiio()
+                spec = oiio.ImageSpec(stacked.shape[1], stacked.shape[0], stacked.shape[2],
+                                      oiio.FLOAT)
+                spec.channelnames = names
+                spec.attribute("compression", oiio_compression)
+                os.makedirs(os.path.dirname(last) or ".", exist_ok=True)
+                out = oiio.ImageOutput.create(last)
+                if out is None or not out.open(last, spec) or not out.write_image(stacked.astype(np.float32)):
+                    raise IOError(f"OIIO could not write multipass EXR {last!r}")
+                out.close()
+            elif use_oiio_writer:
+                from ...utils.sumit_io import write_image_oiio
+                if not write_image_oiio(last, image[b].cpu().float().numpy(),
+                                        bit_depth=oiio_bit_depth, compression=oiio_compression):
+                    raise IOError(f"OIIO could not write {last!r}")
+            else:
+                _save_exr_frame(image[b].cpu().float().numpy(), last, use_half, compression)
         return {"ui": {"text": [last]}, "result": (image, last)}
 
 

@@ -54,8 +54,11 @@ for _eco in (_roto_eco, _fft_eco, _relight_eco, _audio_eco, _flow_eco, _edges_ec
 ALL_NODES = list(NODE_CLASS_MAPPINGS.items())
 
 
-def test_pack_registers_57_nodes():
-    assert len(NODE_CLASS_MAPPINGS) == 57   # was 47; 10 nodes added since, stale constant
+def test_parity_ecosystems_register_59_nodes():
+    # NOTE: this counts a SUBSET - the seven ecosystems imported above (roto,
+    # fft, relight, audio, flow, edges, io), not the whole pack. It went 57 -> 59
+    # when the Sumit port added ReadMultiPass and ShufflePass to `io`.
+    assert len(NODE_CLASS_MAPPINGS) == 59
 
 
 def test_every_key_uses_nukemax_prefix():

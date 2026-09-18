@@ -35,7 +35,18 @@ from typing import List, Optional, Tuple
 import numpy as np
 import torch
 
-import folder_paths  # type: ignore[import-not-found]
+# folder_paths is a ComfyUI runtime module. Importing it at module scope makes
+# this whole file - and therefore all eight OCIO nodes - fail to import anywhere
+# ComfyUI is not running, and a node that fails to import is silently dropped
+# from the menu with no error. Guarded so the module always loads; the helper
+# below raises a sentence if a path is genuinely needed and ComfyUI is absent.
+try:
+    import folder_paths  # type: ignore[import-not-found]
+except Exception:  # noqa: BLE001
+    folder_paths = None  # type: ignore[assignment]
+
+# Every use below already sits in a try/except, so None degrades cleanly.
+
 
 from ..._is_changed_util import hash_args_and_kwargs
 from ..._tensor_util import require_image_bhwc
@@ -122,6 +133,36 @@ def _resolve_lut(choice: str, exts) -> str:
         + (" ; ".join(dirs) if dirs else "(no LUT directories are registered)")
         + f". Drop a {'/'.join(sorted(exts))} file into ComfyUI/models/luts/ "
         "or the ComfyUI input folder, then refresh the node list."
+    )
+
+
+def _cube_from_native(native: dict, path: str) -> _cube.Cube:
+    """Build a Cube from sumit_lut_native parser output for LUTApply sampling."""
+    data = native.get("data")
+    if data is None or len(data) == 0:
+        raise ValueError(f"Native LUT {path!r} contains no table data.")
+    arr = np.asarray(data, dtype=np.float32)
+    size = int(native.get("size") or 0)
+    if size <= 0:
+        size = int(round(len(arr) ** (1 / 3))) if native.get("type", "3D") == "3D" else len(arr)
+    if native.get("type") == "1D" or arr.ndim == 1:
+        table = arr.reshape(size, 1, 1, 3).repeat(size, axis=1).repeat(size, axis=2)
+        dim = 1
+    else:
+        table = arr.reshape(size, size, size, 3)
+        dim = 3
+    dom_min = tuple(native.get("domain_min", [0.0, 0.0, 0.0])[:3])
+    dom_max = tuple(native.get("domain_max", [1.0, 1.0, 1.0])[:3])
+    st = os.stat(path)
+    return _cube.Cube(
+        table=torch.from_numpy(np.ascontiguousarray(table)),
+        size=size,
+        dim=dim,
+        domain_min=dom_min,
+        domain_max=dom_max,
+        title=str(native.get("title", os.path.basename(path))),
+        path=path,
+        validator=(st.st_mtime_ns, st.st_size),
     )
 
 
@@ -569,13 +610,22 @@ class LUTApply:
                            "clamp = Nuke Vectorfield behaviour, crushes highlights. "
                            "passthrough = out-of-domain pixels keep their input value."}),
             "mix": _MIX_INPUT,
+        }, "optional": {
+            "native_lut_path": ("STRING", {"default": "",
+                "tooltip": "When set, load .3dl/.csp/.spi* from this path instead of lut_file."}),
         }}
 
     def execute(self, image, lut_file, interpolation="tetrahedral",
-                above_domain="extrapolate", mix=1.0):
+                above_domain="extrapolate", mix=1.0, native_lut_path=""):
         require_image_bhwc(image)
-        path = _resolve_lut(lut_file, _LUT_EXTS)   # raises naming every dir searched
-        cube = _cube.load_cube(path)
+        if native_lut_path and str(native_lut_path).strip():
+            from ...utils.sumit_lut_native import load_native_lut
+            nd = load_native_lut(str(native_lut_path).strip())
+            cube = _cube_from_native(nd, str(native_lut_path).strip())
+            path = str(native_lut_path).strip()
+        else:
+            path = _resolve_lut(lut_file, _LUT_EXTS)   # raises naming every dir searched
+            cube = _cube.load_cube(path)
 
         rgb, rest = _split_rgb(image)
         result, out_frac = _cube.sample(cube, rgb, interpolation, above_domain)
