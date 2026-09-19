@@ -24,9 +24,8 @@ PACK = Path(__file__).resolve().parents[1]
 WORKSPACE = PACK.parent
 
 #: Live count. A change here must be deliberate.
-#: 179 base + NukeMax_Levels, ReadMultiPass, ShufflePass, Viewer
-#: + the Serialize/Deserialize pair NUKE_PASSES adds automatically = 185
-EXPECTED_NODE_COUNT = 185
+#: 185 after Sumit batch + VideoSequenceLoad + OCIOGrade/Match/ApplyGrade = 189
+EXPECTED_NODE_COUNT = 189
 
 
 def _load_pack():
@@ -103,6 +102,18 @@ def test_the_sumit_port_nodes_are_actually_registered():
     mappings = getattr(mod, "NODE_CLASS_MAPPINGS", {})
     for node_id in ("NukeMax_Levels", "NukeMax_ReadMultiPass",
                     "NukeMax_ShufflePass", "NukeMax_Viewer"):
+        assert node_id in mappings, f"{node_id} did not register"
+
+
+def test_aces_ocio_batch_nodes_are_registered():
+    mod = _load_pack()
+    mappings = getattr(mod, "NODE_CLASS_MAPPINGS", {})
+    for node_id in (
+        "NukeMax_VideoSequenceLoad",
+        "NukeMax_OCIOGrade",
+        "NukeMax_OCIOGradeMatch",
+        "NukeMax_OCIOApplyGrade",
+    ):
         assert node_id in mappings, f"{node_id} did not register"
 
 

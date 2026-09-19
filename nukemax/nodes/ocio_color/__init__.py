@@ -52,6 +52,7 @@ from ..._is_changed_util import hash_args_and_kwargs
 from ..._tensor_util import require_image_bhwc
 from ...utils.resilience import resilient
 from . import _cube
+from .ocio_grade import NODE_CLASS_MAPPINGS as _GRADE_C, NODE_DISPLAY_NAME_MAPPINGS as _GRADE_D
 from ._curves import CURVE_NAMES, CURVES, LEGACY_CURVE_KEYS, resolve_curve
 from ._primaries import GAMUT_NAMES, gamut_matrix, matrix_source
 
@@ -953,6 +954,7 @@ NODE_CLASS_MAPPINGS = {
     "NukeMax_OCIOFileTransform": OCIOFileTransform,
     "NukeMax_OCIOLookTransform": OCIOLookTransform,
     "NukeMax_OCIOConfigInfo": OCIOConfigInfo,
+    **_GRADE_C,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -964,4 +966,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "NukeMax_OCIOFileTransform": "OCIO FileTransform (Nuke)",
     "NukeMax_OCIOLookTransform": "OCIO LookTransform (Nuke)",
     "NukeMax_OCIOConfigInfo": "OCIO Config Info",
+    **_GRADE_D,
 }
