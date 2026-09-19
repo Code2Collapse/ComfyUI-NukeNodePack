@@ -130,3 +130,53 @@ def test_no_widget_module_imports_a_sibling_pack():
             if pack in src:
                 offenders.append(f"{js.relative_to(WEB)} -> {pack}")
     assert not offenders, "cross-pack frontend imports: " + "; ".join(offenders)
+
+# ── the uniform layer: every node gets the same house treatment ─────────────
+
+def _family_colour_keys() -> list[str]:
+    """The FAMILY_COLOR keys, read out of the kit rather than duplicated here."""
+    kit = (WEB / "widgets" / "_nukemax_kit.js").read_text(encoding="utf-8")
+    block = kit.split("const FAMILY_COLOR = {", 1)[1].split("};", 1)[0]
+    return re.findall(r"(\w+)\s*:", block)
+
+
+def _family_of(category: str, keys: list[str]) -> str:
+    """Mirrors familyOf() in _nukemax_kit.js."""
+    tail = category.split("/")[-1] if category else ""
+    if tail in keys:
+        return tail
+    for k in keys:
+        if k in category:
+            return k
+    return ""
+
+
+def test_every_category_resolves_to_a_family_badge():
+    # INVARIANT: the badge is the one piece of UI EVERY node in the pack gets.
+    # A category with no colour renders an empty chip - a blank rectangle that
+    # reads as a rendering fault, and it is invisible in Python. Six categories
+    # (14 nodes) were in that state when this test was written.
+    from tests.test_registration import _load_pack
+
+    keys = _family_colour_keys()
+    mod = _load_pack()
+    blank = {}
+    for node_id, cls in getattr(mod, "NODE_CLASS_MAPPINGS", {}).items():
+        category = str(getattr(cls, "CATEGORY", ""))
+        if not _family_of(category, keys):
+            blank.setdefault(category, []).append(node_id)
+    assert not blank, (
+        "these categories render a blank family badge; add a FAMILY_COLOR entry "
+        "in web/widgets/_nukemax_kit.js: "
+        + ", ".join(f"{c} ({len(n)} nodes)" for c, n in sorted(blank.items()))
+    )
+
+
+def test_the_viewer_has_a_front_end_and_emits_previews():
+    # INVARIANT: a node called Viewer with no picture on it is the complaint
+    # this pack exists to answer. Both halves are needed - the ui.images
+    # emission AND the widget that draws them.
+    backend = (PACK / "nukemax" / "nodes" / "viewer" / "__init__.py").read_text(
+        encoding="utf-8")
+    assert '"images": _write_previews(result)' in backend
+    assert "widgets/viewer/viewer_panel.js" in ENTRY.read_text(encoding="utf-8")

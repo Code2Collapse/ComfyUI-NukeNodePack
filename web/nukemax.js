@@ -14,6 +14,7 @@ import "./widgets/nkscript/copy_paste.js";
 import "./widgets/mocha/upload.js";
 import "./widgets/io/exr_preview.js";
 import "./widgets/hdr/hdr_scope.js";
+import "./widgets/viewer/viewer_panel.js";
 
 app.registerExtension({
     name: "NukeMax.Base",
