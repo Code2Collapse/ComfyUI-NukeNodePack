@@ -21,9 +21,13 @@ from .multipass import (
     NODE_CLASS_MAPPINGS as _MULTIPASS_C,
     NODE_DISPLAY_NAME_MAPPINGS as _MULTIPASS_D,
 )
+from .video_sequence import (
+    NODE_CLASS_MAPPINGS as _VIDEO_C,
+    NODE_DISPLAY_NAME_MAPPINGS as _VIDEO_D,
+)
 
-NODE_CLASS_MAPPINGS = {**_EXRMETA_C, **_EXRROUTER_C, **_EXRSEQ_C, **_MULTIPASS_C}
-NODE_DISPLAY_NAME_MAPPINGS = {**_EXRMETA_D, **_EXRROUTER_D, **_EXRSEQ_D, **_MULTIPASS_D}
+NODE_CLASS_MAPPINGS = {**_EXRMETA_C, **_EXRROUTER_C, **_EXRSEQ_C, **_MULTIPASS_C, **_VIDEO_C}
+NODE_DISPLAY_NAME_MAPPINGS = {**_EXRMETA_D, **_EXRROUTER_D, **_EXRSEQ_D, **_MULTIPASS_D, **_VIDEO_D}
 
 # On-node EXR preview routes. Guarded and idempotent: importing this package
 # outside a running ComfyUI (the test harness does exactly that) must not fail,

@@ -213,10 +213,14 @@ class EXRSequenceLoad:
             "every_nth": ("INT", {"default": 1, "min": 1, "max": 1000}),
             "use_oiio_reader": ("BOOLEAN", {"default": False,
                 "tooltip": "When off (default), legacy EXR-only loader. When on, OIIO reads TIFF/PNG/DPX/etc."}),
+            "ocio_input_colorspace": ("STRING", {"default": "",
+                "tooltip": "ACES/OCIO: file colorspace on load. Empty = no conversion (legacy)."}),
+            "ocio_output_colorspace": ("STRING", {"default": "",
+                "tooltip": "ACES/OCIO: working colorspace after load. Empty = no conversion."}),
         }}
 
     def execute(self, path, missing_frames, start_frame=-1, end_frame=-1, every_nth=1,
-                use_oiio_reader=False):
+                use_oiio_reader=False, ocio_input_colorspace="", ocio_output_colorspace=""):
         template, frames = _detect_sequence(path)
         if frames is None:
             if use_oiio_reader:
@@ -228,8 +232,12 @@ class EXRSequenceLoad:
                 t = torch.from_numpy(_np.ascontiguousarray(arr)).float().unsqueeze(0)
                 if t.shape[-1] == 1:
                     t = t.repeat(1, 1, 1, 3)
+                from ...utils.ocio_convert import apply_colorspace_convert
+                t = apply_colorspace_convert(t, ocio_input_colorspace, ocio_output_colorspace)
                 return (t, 1, t.shape[2], t.shape[1])
             t = _load_exr_frame(template)
+            from ...utils.ocio_convert import apply_colorspace_convert
+            t = apply_colorspace_convert(t, ocio_input_colorspace, ocio_output_colorspace)
             return (t, 1, t.shape[2], t.shape[1])
         lo = frames[0] if start_frame < 0 else start_frame
         hi = frames[-1] if end_frame < 0 else end_frame
@@ -253,6 +261,8 @@ class EXRSequenceLoad:
             else:
                 tensors.append(last_good)
         out = torch.cat(tensors, dim=0)
+        from ...utils.ocio_convert import apply_colorspace_convert
+        out = apply_colorspace_convert(out, ocio_input_colorspace, ocio_output_colorspace)
         return (out, out.shape[0], out.shape[2], out.shape[1])
 
 
@@ -287,17 +297,31 @@ class EXRSequenceSave:
             "oiio_bit_depth": (("16f", "32f", "16", "8"), {"default": "16f"}),
             "oiio_compression": ("STRING", {"default": "zip"}),
             "passes": ("NUKE_PASSES", {"tooltip": "Optional multi-pass bundle; used only with use_oiio_writer."}),
+            "ocio_input_colorspace": ("STRING", {"default": "",
+                "tooltip": "Working colorspace before write. Empty = no conversion (legacy)."}),
+            "ocio_output_colorspace": ("STRING", {"default": "",
+                "tooltip": "File colorspace to encode. Empty = no conversion."}),
+            "colorspace_in_filename": ("BOOLEAN", {"default": False,
+                "tooltip": "Append a short colorspace tag to the output filename (OCIO Write style)."}),
         }}
 
     def execute(self, image, output_dir, filename, bit_depth, compression, start_frame=1,
-                use_oiio_writer=False, oiio_bit_depth="16f", oiio_compression="zip", passes=None):
+                use_oiio_writer=False, oiio_bit_depth="16f", oiio_compression="zip", passes=None,
+                ocio_input_colorspace="", ocio_output_colorspace="", colorspace_in_filename=False):
         require_image_bhwc(image)
+        from ...utils.ocio_convert import apply_colorspace_convert
+        image = apply_colorspace_convert(image, ocio_input_colorspace, ocio_output_colorspace)
         os.makedirs(output_dir.strip(), exist_ok=True)
         use_half = "16f" in bit_depth
         last = ""
+        cs_tag = ""
+        if colorspace_in_filename and ocio_output_colorspace.strip():
+            cs_tag = "_" + ocio_output_colorspace.strip().lower().replace(" ", "_")[:24]
         for b in range(image.shape[0]):
             n = start_frame + b
             base = re.sub(r"%0(\d+)d", lambda m: f"{n:0{int(m.group(1))}d}", filename)
+            if cs_tag and cs_tag not in base:
+                base = base.replace(".exr", f"{cs_tag}.exr") if base.lower().endswith(".exr") else base + cs_tag
             if not base.lower().endswith(".exr"):
                 base += ".exr"
             last = os.path.join(output_dir.strip(), base)
@@ -349,7 +373,8 @@ class ProResSave:
     OUTPUT_NODE = True
 
     FORMATS = ["MOV ProRes 4444", "MOV ProRes 4444 XQ",
-               "MOV ProRes 422 HQ", "MOV ProRes 422", "MP4 (H.264)"]
+               "MOV ProRes 422 HQ", "MOV ProRes 422", "MP4 (H.264)",
+               "Animated WebP", "Animated GIF"]
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
@@ -363,17 +388,34 @@ class ProResSave:
             "filename": ("STRING", {"default": "output"}),
             "format": (tuple(cls.FORMATS), {"default": "MOV ProRes 4444"}),
             "fps": ("FLOAT", {"default": 24.0, "min": 1.0, "max": 120.0, "step": 0.5}),
+        }, "optional": {
+            "ocio_input_colorspace": ("STRING", {"default": "",
+                "tooltip": "Working colorspace before encode. Empty = no conversion (legacy)."}),
+            "ocio_output_colorspace": ("STRING", {"default": "",
+                "tooltip": "Encode colorspace. Empty = no conversion."}),
         }}
 
-    def execute(self, images, output_dir, filename, format, fps):
+    def execute(self, images, output_dir, filename, format, fps,
+                ocio_input_colorspace="", ocio_output_colorspace=""):
         require_image_bhwc(images)
+        from ...utils.ocio_convert import apply_colorspace_convert
+        images = apply_colorspace_convert(images, ocio_input_colorspace, ocio_output_colorspace)
         os.makedirs(output_dir.strip(), exist_ok=True)
-        ext = ".mp4" if format.startswith("MP4") else ".mov"
+        if format == "Animated WebP":
+            ext = ".webp"
+        elif format == "Animated GIF":
+            ext = ".gif"
+        else:
+            ext = ".mp4" if format.startswith("MP4") else ".mov"
         fname = filename if filename.lower().endswith(ext) else filename + ext
         path = os.path.join(output_dir.strip(), fname)
         if format in _PRORES_PROFILES:
             profile, is_4444 = _PRORES_PROFILES[format]
             self._write_prores(images, path, fps, profile, is_4444)
+        elif format == "Animated WebP":
+            self._write_webp(images, path, fps)
+        elif format == "Animated GIF":
+            self._write_gif(images, path, fps)
         else:
             self._write_mp4(images, path, fps)
         return {"ui": {"text": [path]}, "result": (images, path)}
@@ -415,6 +457,37 @@ class ProResSave:
                 vw.write(u8[:, :, ::-1])
         finally:
             vw.release()
+
+    @staticmethod
+    def _tensor_to_pil_frames(t: torch.Tensor):
+        try:
+            from PIL import Image
+        except ImportError as exc:
+            raise ImportError("Animated WebP/GIF export needs Pillow: pip install pillow") from exc
+        frames = []
+        for i in range(t.shape[0]):
+            u8 = (t[i, :, :, :3].cpu().float().numpy() * 255.0).clip(0, 255).astype(np.uint8)
+            frames.append(Image.fromarray(u8, mode="RGB"))
+        return frames
+
+    @staticmethod
+    def _write_webp(t: torch.Tensor, path: str, fps: float):
+        frames = ProResSave._tensor_to_pil_frames(t)
+        duration_ms = max(1, int(1000.0 / float(fps)))
+        frames[0].save(path, save_all=True, append_images=frames[1:], duration=duration_ms, loop=0)
+
+    @staticmethod
+    def _write_gif(t: torch.Tensor, path: str, fps: float):
+        from PIL import Image
+        frames = ProResSave._tensor_to_pil_frames(t)
+        palette_frames = [
+            f.convert("RGB").quantize(colors=256, method=Image.Quantize.MEDIANCUT) for f in frames
+        ]
+        duration_ms = max(1, int(1000.0 / float(fps)))
+        palette_frames[0].save(
+            path, save_all=True, append_images=palette_frames[1:],
+            duration=duration_ms, loop=0, optimize=False,
+        )
 
 
 NODE_CLASS_MAPPINGS = {
