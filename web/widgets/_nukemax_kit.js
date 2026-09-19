@@ -36,6 +36,7 @@ const FAMILY_COLOR = {
   IO: "#8a8a8a", Roto: "#d16a6a", Flow: "#5aa8c8", Relight: "#d1a33a",
   Generate: "#8a8a8a", Channel: "#7db35a", FFT: "#5aa8c8", Edges: "#4fb3a5",
   Lens: "#a07cc8", Audio: "#c85a7d", Time: "#8a8a8a", NkScript: "#8a8a8a",
+  HDR: "#e0a24a",
 };
 
 function familyOf(nodeData) {

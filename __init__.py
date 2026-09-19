@@ -62,6 +62,8 @@ _ECOSYSTEMS = (
     # Colour tier (Aug 2026): camera log curves + derived gamut matrices +
     # .cube LUTs + the OCIO CDL/File/Look transforms and config introspection.
     ".nukemax.nodes.ocio_color",
+    # Batch 3 (Radiance): HDR / IBL scene-linear nodes.
+    ".nukemax.nodes.hdr",
 )
 
 for mod_name in _ECOSYSTEMS:
