@@ -126,6 +126,6 @@ Nuke → EXR sequence (LogC4 or ACEScg)
 
 ## License
 
-Apache-2.0. OCIO/EXR/ProRes I/O adapted from ComfyUI-ACES-IO (MIT, © 2025
+GPL-3.0. OCIO/EXR/ProRes I/O adapted from ComfyUI-ACES-IO (MIT, © 2025
 Bishoy Samaan) with attribution in the source headers. "Nuke" is a trademark
 of The Foundry; this pack is independent and unaffiliated.

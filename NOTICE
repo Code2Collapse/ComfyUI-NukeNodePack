@@ -4,7 +4,19 @@ Copyright (c) 2025-2026 Code2Collapse (Likhith)
 Original author and maintainer: **Code2Collapse (Likhith)**
 GitHub: https://github.com/Code2Collapse
 
-This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+This product is licensed under the GNU General Public License v3.0
+(see LICENSE).
+
+RELICENSED 2026-09-19, from Apache-2.0. The NukeMax/HDR family is a port
+of Radiance by FXTD Studios, which declares GPL-3.0, and the owner chose
+to relicense this pack to match rather than rewrite or drop the port. The
+same change resolves an earlier inconsistency in which this file and
+LICENSE said Apache-2.0 while pyproject.toml said MIT.
+
+Everything in this repository authored by Code2Collapse (Likhith) before
+that date was published under Apache-2.0; those earlier releases remain
+available under Apache-2.0 on their own terms. This and later releases
+are GPL-3.0.
 
 ============================================================================
 ATTRIBUTION REQUIREMENT
@@ -22,12 +34,13 @@ part), you MUST:
      file, commit history, package metadata, or release notes.
   5. Not use the name "Code2Collapse", "Likhith", or any associated
      branding/logo to endorse or promote your derivative works without
-     prior written permission (Apache-2.0 Section 6 -- Trademarks).
+     prior written permission.
 
 You ARE free to:
   - Use the work for any purpose (commercial or non-commercial).
   - Modify, fork, and redistribute (subject to attribution above).
-  - Include the work in larger projects under any compatible license.
+  - Include the work in larger projects, provided the combined work is
+    distributed under the GPL-3.0 (see LICENSE section 5).
 
 You are NOT permitted to:
   - Claim authorship of the original work.

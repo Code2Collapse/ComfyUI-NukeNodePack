@@ -20,6 +20,11 @@ MIT nuke-nodes" — **this repo is not MIT.** Apache-2.0 already accepts MIT inb
 that decision is satisfied with no change at all. Flipping it to GPL would permanently block
 Apache/MIT consumers and is only worth doing if you specifically want GPL VFX math here.
 
+> **SUPERSEDED 2026-09-19.** The owner chose the last option in that sentence. This pack is now
+> **GPL-3.0**, because `NukeMax/HDR` is a port of Radiance (GPL-3) rather than the clean-room
+> reimplementation it was first labelled as. The same change fixed a contradiction this section
+> did not catch: `pyproject.toml` said MIT while `LICENSE` said Apache-2.0. See `NOTICE.md`.
+
 ## 3. Registration smoke
 PASS — 181 nodes.
 

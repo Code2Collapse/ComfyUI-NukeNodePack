@@ -10,7 +10,7 @@ after. par_info JSON carries the undo data so the round trip is exact.
 Same wire contract as CustomNodePacks' PARDesqueezeMEC/PARResqueezeMEC —
 the par_info strings are interchangeable between the packs.
 
-Author: Code2Collapse. Apache-2.0.
+Author: Code2Collapse. GPL-3.0 (this pack was relicensed 2026-09-19).
 """
 from __future__ import annotations
 

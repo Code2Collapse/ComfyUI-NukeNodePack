@@ -1,7 +1,8 @@
 # NOTICE — ComfyUI-NukeMaxNodes
 
 Copyright (c) 2025-2026 Code2Collapse  
-License: Apache License 2.0 (see LICENSE)
+License: GNU General Public License v3.0 (see LICENSE)  
+Relicensed from Apache-2.0 on 2026-09-19 — see the HDR note below.
 
 ---
 
@@ -41,13 +42,21 @@ Front-ends are **not** ported. Every node in this pack carries a NukeMax
 front-end written for this pack (`web/widgets/`), because the upstream UIs are
 either absent or thinner than what these nodes need.
 
-### Open licence question on the HDR family
+### The HDR family, and why this pack is GPL-3
 
-`radiance` declares GPL-3.0 in its README but ships no LICENSE file, and this
-repository's `LICENSE` is Apache-2.0. Those two are not compatible for
-redistribution of a combined work. This is recorded here rather than papered
-over; the repository owner decides how it is resolved (relicense this pack,
-rewrite the HDR family independently, or drop it).
+`radiance` declares GPL-3.0 in its README (it ships no LICENSE file), and
+`nukemax/nodes/hdr/` is a port of it, not an independent implementation — an
+earlier header on those files claimed "clean-room" and that claim was false.
+GPL-3 code cannot be redistributed inside an Apache-2.0 work, so on 2026-09-19
+the owner chose to relicense this pack to GPL-3.0 rather than rewrite the port
+or drop it. `LICENSE`, `NOTICE` and `pyproject.toml` all say GPL-3.0 now; the
+last of those previously said MIT, which was a separate pre-existing error.
+
+Practical consequence for anyone building on this pack: the GPL-3 is viral, so
+a derivative work that includes any part of it must also be GPL-3. If you need
+a permissive subset, the families listed above as MIT-derived (ACES-IO, OCIO,
+nuke-nodes-comfyui) are ports of MIT sources and you are better off going to
+those upstreams directly.
 
 ---
 
