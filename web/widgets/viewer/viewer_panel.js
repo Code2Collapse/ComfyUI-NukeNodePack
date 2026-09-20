@@ -27,7 +27,7 @@
 //
 // Plain ES module, no Vue, addDOMWidget so it renders on both frontends.
 
-import { app } from "../../../scripts/app.js";
+import { app } from "../../../../scripts/app.js";
 
 const ST = "_nmViewer";
 const NODE_NAME = "NukeMax_Viewer";

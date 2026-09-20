@@ -19,7 +19,7 @@
 // frontends; a raw canvas draw does not. Nothing touches `window` at import
 // time, so a headless / queue-only run is unaffected.
 
-import { app } from "../../../scripts/app.js";
+import { app } from "../../../../scripts/app.js";
 import {
   expandResponse,
   expansionKnee,
