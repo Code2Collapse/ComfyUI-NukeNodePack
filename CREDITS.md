@@ -52,6 +52,21 @@ ACES 1.2 config is BSD via colour-science.
 
 The OCIO grade and curve work in `nukemax/nodes/ocio_color/`.
 
+### ComfyUI-ReLight
+**MIT** (README badge and LICENSE)
+
+`nukemax/nodes/relight/light_paint.py` — the ReLight 2D light-painting node,
+and the regression suite in `tests/test_relight_2d.py`. It complements this
+pack's own PBR relight nodes rather than replacing them: those decompose an
+image into albedo/normal/depth and shade it from geometry, this one paints
+light onto the plate the way a comper does with a Radial and a Grade.
+
+Changed on the way in: the node id is namespaced (`NukeMax_ReLight2D`) so it
+cannot silently collide with the original if both are installed; the SciPy
+import is guarded so its absence cannot take the whole relight package down;
+and the tests now run against the real `comfy_api` instead of the upstream
+stub, which is what caught the schema-introspection differences.
+
 ---
 
 ## Not ported — reference only

@@ -325,7 +325,23 @@ class LightProbeToEXR:
         return (str(written).replace("\\", "/"),)
 
 
+# The 2D light-painting node lives in its own module. Its import is guarded
+# separately: it needs SciPy and PIL, and if those are missing the five
+# math-only PBR nodes below must still register.
+try:
+    from .light_paint import (
+        NODE_CLASS_MAPPINGS as _LIGHTPAINT_MAPPINGS,
+        NODE_DISPLAY_NAME_MAPPINGS as _LIGHTPAINT_DISPLAY,
+    )
+except Exception as _lp_exc:  # noqa: BLE001
+    import logging as _lg
+    _LIGHTPAINT_MAPPINGS, _LIGHTPAINT_DISPLAY = {}, {}
+    _lg.getLogger("nukemax").warning(
+        "[NukeMax] ReLight 2D unavailable: %s", _lp_exc)
+
+
 NODE_CLASS_MAPPINGS = {
+    **_LIGHTPAINT_MAPPINGS,
     "NukeMax_MaterialDecomposerHeuristic": MaterialDecomposerHeuristic,
     "NukeMax_MaterialDecomposerModels": MaterialDecomposerModels,
     "NukeMax_LightRigBuilder": LightRigBuilder,
@@ -335,6 +351,7 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
+    **_LIGHTPAINT_DISPLAY,
     "NukeMax_MaterialDecomposerHeuristic": "Material Decomposer (Heuristic)",
     "NukeMax_MaterialDecomposerModels": "Material Decomposer (Models)",
     "NukeMax_LightRigBuilder": "Light Rig Builder",

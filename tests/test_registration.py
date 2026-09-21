@@ -25,7 +25,7 @@ WORKSPACE = PACK.parent
 
 #: Live count. A change here must be deliberate.
 #: 189 after ACES/OCIO batch + 9 Radiance HDR PORT = 198
-EXPECTED_NODE_COUNT = 198
+EXPECTED_NODE_COUNT = 199   # +1: ReLight 2D (comfyui-relight port)
 
 
 def _load_pack():
