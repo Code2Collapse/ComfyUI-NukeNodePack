@@ -155,3 +155,46 @@ def pick_beauty_image(passes: Dict[str, torch.Tensor]) -> torch.Tensor:
     if passes:
         return pass_to_image(next(iter(passes.values())), mode="auto")
     return torch.zeros((1, 512, 512, 3))
+
+
+def channel_suffix_for_pass(pass_name: str, channel_count: int) -> list:
+    """EXR channel suffixes for one AOV, e.g. ("R", "G", "B").
+
+    Written because `exr_sequence.py` imported it and it did not exist: the
+    import is lazy and inside a branch, so the pack loaded cleanly and the
+    multipass OIIO writer raised ImportError only when someone actually saved
+    one - the headline feature of an EXR pack, failing at the last step.
+
+    The names follow the convention every compositor expects, because the
+    channel name is the contract: Nuke, Resolve and OIIO all split
+    "diffuse.R" into a layer and a channel, and a pass whose channels are
+    named ch0/ch1/ch2 arrives as three unrelated greyscale layers that have to
+    be reassembled by hand.
+
+      1  ->  Y        a single-channel pass is luminance-like (depth, alpha,
+                      an AO or a matte); "R" would imply a colour channel
+      2  ->  X, Y     motion vectors and UVs, which are coordinates
+      3  ->  R, G, B
+      4  ->  R, G, B, A
+      n  ->  channel0..channel(n-1), spelled out rather than truncated
+
+    Depth is the documented exception: the convention is a single channel
+    literally named "Z", and a depth pass called "depth.Y" is not recognised
+    as depth by anything downstream.
+    """
+    n = int(channel_count)
+    name = (pass_name or "").strip().lower()
+
+    if n == 1:
+        if name in ("z", "depth", "zdepth", "z_depth"):
+            return ["Z"]
+        return ["Y"]
+    if n == 2:
+        # Coordinates, not colour. Naming these R/G makes a motion vector
+        # display as a red-green image and read as one downstream.
+        return ["X", "Y"]
+    if n == 3:
+        return ["R", "G", "B"]
+    if n == 4:
+        return ["R", "G", "B", "A"]
+    return [f"channel{i}" for i in range(n)]
