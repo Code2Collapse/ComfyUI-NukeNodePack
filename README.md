@@ -169,4 +169,9 @@ The strict typing means a `MASK` produced by, for example, `RotoShapeRender` is 
 
 ## License
 
-Apache-2.0 (see `LICENSE`).
+GPL-3.0 (see `LICENSE`).
+
+Relicensed from Apache-2.0 on 2026-09-19: the `NukeMax/HDR` family is a
+port of [radiance](https://github.com/fxtdstudios/radiance), which
+declares GPL-3.0. See `NOTICE.md` for the full provenance of every ported
+family.

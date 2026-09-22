@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -85,34 +86,77 @@ def _register_lut_folder() -> None:
 _register_lut_folder()
 
 
+# INPUT_TYPES runs on ComfyUI's asyncio loop, once per node, on every single
+# /object_info call - so anything it touches on disk has to be bounded. It was
+# not, and on 2026-09-20 that stopped the UI from opening at all: the scan
+# below walked the OUTPUT directory, which had grown to 1,000,015 directories,
+# taking 129s per walk and 246s per /object_info. See the module notes in
+# docs/ and the three limits below, each of which independently prevents a
+# repeat.
+_LUT_SCAN_TTL_S = 30.0      # /object_info is called repeatedly; don't re-walk
+_LUT_SCAN_MAX_DEPTH = 4     # deep enough for luts/show/shot/, not for a render tree
+_LUT_SCAN_MAX_ENTRIES = 20_000   # hard stop, whatever the tree looks like
+_lut_scan_cache: dict = {}
+
+
 def _lut_search_dirs() -> List[str]:
-    """Every directory a LUT may live in, in priority order."""
+    """Every directory a LUT may live in, in priority order.
+
+    NOT the output directory. A LUT is an input asset - it is authored
+    elsewhere and dropped in - so searching among renders bought nothing, and
+    it is exactly what froze the server: output trees grow without limit and
+    this list is walked while the event loop waits.
+    """
     dirs: List[str] = []
     try:
         dirs.extend(folder_paths.get_folder_paths(_LUT_FOLDER_KEY) or [])
     except Exception:
         pass
-    for getter in ("get_input_directory", "get_output_directory"):
-        try:
-            d = getattr(folder_paths, getter)()
-            if d and d not in dirs:
-                dirs.append(d)
-        except Exception:
-            pass
+    try:
+        d = folder_paths.get_input_directory()
+        if d and d not in dirs:
+            dirs.append(d)
+    except Exception:
+        pass
     return dirs
 
 
-def _scan_luts(exts) -> List[str]:
+def _walk_bounded(root_dir: str, exts, budget: List[int]) -> List[str]:
+    """os.walk, but it cannot run away: depth-capped and entry-capped."""
     found: List[str] = []
+    root_depth = root_dir.rstrip(os.sep).count(os.sep)
+    for root, subdirs, files in os.walk(root_dir):
+        if budget[0] <= 0:
+            log.warning(
+                "NukeMax LUT scan stopped at %d entries under %s - the tree is "
+                "larger than a LUT folder should be. Put LUTs in "
+                "ComfyUI/models/luts/ so they are found instantly.",
+                _LUT_SCAN_MAX_ENTRIES, root_dir)
+            break
+        if root.rstrip(os.sep).count(os.sep) - root_depth >= _LUT_SCAN_MAX_DEPTH:
+            subdirs[:] = []          # stop descending, still read this level
+        budget[0] -= len(files) + len(subdirs)
+        for f in files:
+            if os.path.splitext(f)[1].lower() in exts:
+                rel = os.path.relpath(os.path.join(root, f), root_dir)
+                found.append(rel.replace("\\", "/"))
+    return found
+
+
+def _scan_luts(exts) -> List[str]:
+    key = frozenset(exts)
+    hit = _lut_scan_cache.get(key)
+    if hit is not None and (time.monotonic() - hit[0]) < _LUT_SCAN_TTL_S:
+        return hit[1]
+
+    found: List[str] = []
+    budget = [_LUT_SCAN_MAX_ENTRIES]
     for root_dir in _lut_search_dirs():
-        if not os.path.isdir(root_dir):
-            continue
-        for root, _dirs, files in os.walk(root_dir):
-            for f in files:
-                if os.path.splitext(f)[1].lower() in exts:
-                    rel = os.path.relpath(os.path.join(root, f), root_dir)
-                    found.append(rel.replace("\\", "/"))
-    return sorted(set(found))
+        if os.path.isdir(root_dir):
+            found.extend(_walk_bounded(root_dir, exts, budget))
+    out = sorted(set(found))
+    _lut_scan_cache[key] = (time.monotonic(), out)
+    return out
 
 
 def _lut_choices(exts) -> list:

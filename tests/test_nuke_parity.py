@@ -54,11 +54,11 @@ for _eco in (_roto_eco, _fft_eco, _relight_eco, _audio_eco, _flow_eco, _edges_ec
 ALL_NODES = list(NODE_CLASS_MAPPINGS.items())
 
 
-def test_parity_ecosystems_register_59_nodes():
+def test_parity_ecosystems_register_60_nodes():
     # NOTE: this counts a SUBSET - the seven ecosystems imported above (roto,
     # fft, relight, audio, flow, edges, io), not the whole pack. It went 57 -> 59
     # when the Sumit port added ReadMultiPass and ShufflePass to `io`.
-    assert len(NODE_CLASS_MAPPINGS) == 59
+    assert len(NODE_CLASS_MAPPINGS) == 60   # +1: ReLight 2D (light painting)
 
 
 def test_every_key_uses_nukemax_prefix():
@@ -83,7 +83,16 @@ def test_node_has_required_class_attrs(key, cls):
     assert hasattr(cls, "FUNCTION"), f"{key} missing FUNCTION"
     assert hasattr(cls, cls.FUNCTION), f"{key} missing method {cls.FUNCTION}"
     assert hasattr(cls, "RETURN_TYPES"), f"{key} missing RETURN_TYPES"
-    assert isinstance(cls.RETURN_TYPES, tuple)
+    # A SEQUENCE, not specifically a tuple. The bug this catches is
+    # `RETURN_TYPES = ("IMAGE")` - no comma, so it is a string, and ComfyUI
+    # reads it as five outputs named I, M, A, G, E. v3 io.ComfyNode nodes
+    # derive RETURN_TYPES from their schema and hand back a list, which is
+    # correct and used to fail here.
+    assert not isinstance(cls.RETURN_TYPES, str), (
+        f"{key} RETURN_TYPES is a string - a missing trailing comma turns "
+        f"(\"IMAGE\") into five one-character outputs")
+    assert isinstance(cls.RETURN_TYPES, (tuple, list)), (
+        f"{key} RETURN_TYPES={cls.RETURN_TYPES!r} is not a sequence")
     assert len(cls.RETURN_TYPES) >= 1
     assert hasattr(cls, "INPUT_TYPES"), f"{key} missing INPUT_TYPES"
     spec = cls.INPUT_TYPES()

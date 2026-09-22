@@ -45,6 +45,79 @@ class TestViewerPort:
         assert torch.allclose(out[..., 0], r.squeeze(-1), atol=1e-5)
 
 
+@pytest.mark.requires_comfy
+class TestViewerPreview:
+    """The Viewer draws the frame on itself; socket values never reach the
+    browser, so the picture has to travel as `ui.images`."""
+
+    def test_execute_emits_preview_entries(self, rgba):
+        ret = NukeMax_Viewer().execute(rgba, "rgba", 1.0, 1.0, False, "")
+        images = ret["ui"]["images"]
+        assert images, "no preview written - the node would show an empty stage"
+        entry = images[0]
+        assert set(entry) == {"filename", "subfolder", "type"}
+        assert entry["type"] == "temp"
+        assert entry["filename"].endswith(".png")
+
+    def test_one_preview_per_frame(self):
+        seq = torch.rand(3, 8, 8, 3)
+        ret = NukeMax_Viewer().execute(seq, "rgba", 1.0, 1.0, False, "")
+        assert len(ret["ui"]["images"]) == 3
+
+    def test_a_long_sequence_is_capped(self):
+        # INVARIANT: a 200-frame render must not write 200 PNGs per queue to
+        # fill a 200px widget. The cap is what keeps the Viewer usable on a
+        # sequence, and the frame strip reports the real count separately.
+        from nukemax.nodes.viewer import MAX_PREVIEW_FRAMES
+
+        seq = torch.rand(MAX_PREVIEW_FRAMES + 5, 8, 8, 3)
+        ret = NukeMax_Viewer().execute(seq, "rgba", 1.0, 1.0, False, "")
+        assert len(ret["ui"]["images"]) == MAX_PREVIEW_FRAMES
+
+    def test_the_files_are_actually_on_disk(self, rgba):
+        import os
+
+        import folder_paths
+
+        ret = NukeMax_Viewer().execute(rgba, "rgba", 1.0, 1.0, False, "")
+        for entry in ret["ui"]["images"]:
+            path = os.path.join(folder_paths.get_temp_directory(),
+                                entry["subfolder"], entry["filename"])
+            assert os.path.isfile(path), f"{entry['filename']} was never written"
+
+    def test_each_run_gets_a_fresh_filename(self, rgba):
+        # INVARIANT: /view is cached hard. A stable filename shows the PREVIOUS
+        # render after a parameter change, which reads as "the node ignored me".
+        a = NukeMax_Viewer().execute(rgba, "rgba", 1.0, 1.0, False, "")
+        b = NukeMax_Viewer().execute(rgba, "rgba", 1.0, 2.0, False, "")
+        assert a["ui"]["images"][0]["filename"] != b["ui"]["images"][0]["filename"]
+
+
+class TestViewerPreviewDegradesQuietly:
+    """Deliberately NOT marked requires_comfy: the fallback matters most on the
+    box that has no ComfyUI on sys.path, so it has to run there."""
+
+    def test_a_preview_failure_does_not_fail_the_render(self, rgba, monkeypatch):
+        # INVARIANT: the picture is a convenience. If the temp dir is read-only
+        # the IMAGE output must still arrive - losing a render to a failed
+        # thumbnail would be a far worse bug than having no thumbnail.
+        from nukemax.nodes import viewer as viewer_mod
+
+        def _boom(*_a, **_k):
+            raise OSError("temp directory is read-only")
+
+        monkeypatch.setattr(viewer_mod.os, "makedirs", _boom)
+        ret = NukeMax_Viewer().execute(rgba, "rgba", 1.0, 1.0, False, "")
+        assert ret["ui"]["images"] == []
+        assert ret["result"][0].shape == (1, 8, 8, 3)
+
+    def test_the_image_output_is_unaffected_by_the_preview(self, rgba):
+        # INVARIANT: the preview path must not touch the tensor it previews.
+        ret = NukeMax_Viewer().execute(rgba, "red", 1.0, 1.0, False, "")
+        out = ret["result"][0]
+        assert torch.allclose(out[..., 0], rgba[..., 0], atol=1e-5)
+
+
 class TestShufflePassPort:
     def test_picks_named_pass(self, img):
         bundle = NukePasses(passes={"diffuse": img[0]})

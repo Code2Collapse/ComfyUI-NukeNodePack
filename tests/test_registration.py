@@ -24,8 +24,8 @@ PACK = Path(__file__).resolve().parents[1]
 WORKSPACE = PACK.parent
 
 #: Live count. A change here must be deliberate.
-#: 185 after Sumit batch + VideoSequenceLoad + OCIOGrade/Match/ApplyGrade = 189
-EXPECTED_NODE_COUNT = 189
+#: 189 after ACES/OCIO batch + 9 Radiance HDR PORT = 198
+EXPECTED_NODE_COUNT = 199   # +1: ReLight 2D (comfyui-relight port)
 
 
 def _load_pack():
@@ -113,6 +113,18 @@ def test_aces_ocio_batch_nodes_are_registered():
         "NukeMax_OCIOGrade",
         "NukeMax_OCIOGradeMatch",
         "NukeMax_OCIOApplyGrade",
+    ):
+        assert node_id in mappings, f"{node_id} did not register"
+
+
+def test_radiance_hdr_batch_nodes_are_registered():
+    mod = _load_pack()
+    mappings = getattr(mod, "NODE_CLASS_MAPPINGS", {})
+    for node_id in (
+        "NukeMax_HDRImageToFloat32",
+        "NukeMax_HDRToneMap",
+        "NukeMax_HDRExposureBlend",
+        "NukeMax_HDR360Generate",
     ):
         assert node_id in mappings, f"{node_id} did not register"
 

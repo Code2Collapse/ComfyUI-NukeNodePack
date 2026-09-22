@@ -1,7 +1,8 @@
 # NOTICE — ComfyUI-NukeMaxNodes
 
 Copyright (c) 2025-2026 Code2Collapse  
-License: Apache License 2.0 (see LICENSE)
+License: GNU General Public License v3.0 (see LICENSE)  
+Relicensed from Apache-2.0 on 2026-09-19 — see the HDR note below.
 
 ---
 
@@ -15,6 +16,47 @@ The Foundry Visionmongers Ltd** in any way.
 The name reflects conceptual inspiration from professional VFX compositing
 workflows; no code, algorithms, or proprietary assets from The Foundry's
 Nuke software are included or reproduced in this project.
+
+---
+
+## Ported Node Source
+
+Some node families in this pack are **ports of other open-source ComfyUI node
+packs**, not independent implementations. They are listed here so that anyone
+reading, forking or redistributing this repository knows exactly what is
+derived and from where. Where a file follows its source closely, the file
+header says so.
+
+| NukeMax family | Upstream project | Licence the upstream declares |
+| --- | --- | --- |
+| `NukeMax/HDR` (`nukemax/nodes/hdr/`, `nukemax/utils/hdr_linear.py`) | [radiance](https://github.com/fxtdstudios/radiance) by FXTD Studios | README badge and credits say **GPL-3.0**; the repository ships **no LICENSE file** |
+| `NukeMax/IO` EXR sequence, `NukeMax/OCIO` transforms | [ComfyUI-ACES-IO](https://github.com/BISAM20/ComfyUI-ACES-IO) by BISAM20 | README says **MIT** |
+| `NukeMax/OCIO` grade / curves | [ComfyUI-OCIO](https://github.com/SlavaSexton/ComfyUI-OCIO) by Slava Sexton (AI VFX NEWS) | README badge says **MIT** |
+| `NukeMax` Nuke-parity operators (Levels, MultiPass, ShufflePass, Viewer) | [nuke-nodes-comfyui](https://github.com/sumitchatterjee13/nuke-nodes-comfyui) by Sumit Chatterjee | README says **MIT** |
+
+None of the four upstream clones in this workspace's `third_party/` ships an
+actual `LICENSE` file; the licence in each row is the one the project's README
+or `pyproject.toml` declares.
+
+Front-ends are **not** ported. Every node in this pack carries a NukeMax
+front-end written for this pack (`web/widgets/`), because the upstream UIs are
+either absent or thinner than what these nodes need.
+
+### The HDR family, and why this pack is GPL-3
+
+`radiance` declares GPL-3.0 in its README (it ships no LICENSE file), and
+`nukemax/nodes/hdr/` is a port of it, not an independent implementation — an
+earlier header on those files claimed "clean-room" and that claim was false.
+GPL-3 code cannot be redistributed inside an Apache-2.0 work, so on 2026-09-19
+the owner chose to relicense this pack to GPL-3.0 rather than rewrite the port
+or drop it. `LICENSE`, `NOTICE` and `pyproject.toml` all say GPL-3.0 now; the
+last of those previously said MIT, which was a separate pre-existing error.
+
+Practical consequence for anyone building on this pack: the GPL-3 is viral, so
+a derivative work that includes any part of it must also be GPL-3. If you need
+a permissive subset, the families listed above as MIT-derived (ACES-IO, OCIO,
+nuke-nodes-comfyui) are ports of MIT sources and you are better off going to
+those upstreams directly.
 
 ---
 

@@ -1,10 +1,20 @@
 # PORTED FROM: nuke-nodes-comfyui (third_party/nuke-nodes-comfyui) by Sumit Chatterjee
 # Licence: MIT — direct copy authorised by owner; attribution retained.
-"""Nuke-style viewer — backend only (no JavaScript)."""
+"""Nuke-style viewer — processes the frame and previews it on the node."""
 from __future__ import annotations
+
+import logging
+import os
+import random
 
 import torch
 import torch.nn.functional as F
+
+logger = logging.getLogger(__name__)
+
+#: How many frames of a sequence get a preview thumbnail. A 200-frame render
+#: would otherwise write 200 PNGs per queue just to fill a 200px-wide widget.
+MAX_PREVIEW_FRAMES = 8
 
 from ...utils.resilience import resilient
 from ..._tensor_util import require_image_bhwc
@@ -22,6 +32,7 @@ class NukeMax_Viewer:
     CATEGORY = "NukeMax/Viewer"
     FUNCTION = "execute"
     RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("image",)
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
@@ -142,7 +153,45 @@ class NukeMax_Viewer:
             ui_text = f"{channel_line}\n{overlay_text.strip()}"
 
         result = result[..., :3].clamp(0, 1).contiguous()
-        return {"ui": {"text": [ui_text]}, "result": (result,)}
+        return {
+            "ui": {"text": [ui_text], "images": _write_previews(result)},
+            "result": (result,),
+        }
+
+
+def _write_previews(result: torch.Tensor) -> list:
+    """Write display-referred PNGs to ComfyUI's temp dir for the on-node viewer.
+
+    Returns the `ui.images` entries the frontend needs. Never raises: a preview
+    that cannot be written must not fail a render that otherwise succeeded, so
+    a failure comes back as an empty list and the widget says why.
+    """
+    try:
+        import folder_paths
+        from PIL import Image
+        import numpy as np
+    except Exception as exc:  # noqa: BLE001
+        logger.info("[NukeMax] Viewer preview unavailable: %s", exc)
+        return []
+
+    try:
+        out_dir = folder_paths.get_temp_directory()
+        os.makedirs(out_dir, exist_ok=True)
+        # A fresh prefix per run: the browser caches /view aggressively, and a
+        # stable name shows the PREVIOUS render after a parameter change.
+        prefix = f"nukemax_viewer_{random.randint(0, 0xFFFFFFFF):08x}"
+        frames = result[:MAX_PREVIEW_FRAMES]
+        entries = []
+        for i in range(frames.shape[0]):
+            arr = (frames[i].detach().cpu().numpy() * 255.0).clip(0, 255)
+            img = Image.fromarray(arr.astype(np.uint8), mode="RGB")
+            name = f"{prefix}_{i:03d}.png"
+            img.save(os.path.join(out_dir, name), compress_level=4)
+            entries.append({"filename": name, "subfolder": "", "type": "temp"})
+        return entries
+    except Exception as exc:  # noqa: BLE001
+        logger.info("[NukeMax] Viewer preview could not be written: %s", exc)
+        return []
 
 
 NODE_CLASS_MAPPINGS = {
