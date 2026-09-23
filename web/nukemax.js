@@ -9,6 +9,7 @@ import { app } from "../../scripts/app.js";
 import "./widgets/_nukemax_kit.js";
 import "./widgets/roto/roto_editor.js";
 import "./widgets/relight/light_placer.js";
+import "./widgets/relight/light_placer_2d.js";
 import "./widgets/audio/waveform_preview.js";
 import "./widgets/nkscript/copy_paste.js";
 import "./widgets/mocha/upload.js";
