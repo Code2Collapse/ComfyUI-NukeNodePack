@@ -12,10 +12,27 @@ from ..types import serialize as ser_mod
 from ..utils.resilience import resilient
 
 
+def _pretty(type_name: str) -> str:
+    return type_name.title().replace("_", " ")
+
+
 def _make_serialize(type_name: str):
+    pretty = _pretty(type_name)
+
     @resilient
     class _Serialize:
         CATEGORY = f"NukeMax/IO/{type_name}"
+        # Generated per type, because a node with no description shows a blank
+        # tooltip in the menu - and these are the nodes someone reaches for
+        # when they already do not know how to get a {pretty} across a reload.
+        DESCRIPTION = (
+            f"Encode a {pretty} into a JSON payload string so it survives a "
+            "workflow save and reload. ComfyUI only persists wires between "
+            f"nodes that both exist in one run; a {pretty} handed to Serialize "
+            "becomes text you can store in the workflow, paste elsewhere, or "
+            f"feed back through Deserialize {pretty}. This is a sink node, so "
+            "it can end a chain the way Save Image does."
+        )
         FUNCTION = "execute"
         RETURN_TYPES = ("STRING",)
         RETURN_NAMES = ("payload",)
@@ -38,9 +55,19 @@ def _make_serialize(type_name: str):
 
 
 def _make_deserialize(type_name: str):
+    pretty = _pretty(type_name)
+
     @resilient
     class _Deserialize:
         CATEGORY = f"NukeMax/IO/{type_name}"
+        DESCRIPTION = (
+            f"Rebuild a {pretty} from the JSON payload that Serialize "
+            f"{pretty} produced. Paste the payload in, or wire it from a "
+            "stored string, and carry on as if the original node were still "
+            "upstream. The payload must have come from the matching Serialize "
+            f"node - a payload for a different type will not read as a "
+            f"{pretty}."
+        )
         FUNCTION = "execute"
         RETURN_TYPES = (type_name,)
         RETURN_NAMES = ("obj",)
@@ -67,6 +94,6 @@ for _t in TYPE_NAMES:
     dkey = f"NukeMax_Deserialize_{_t}"
     NODE_CLASS_MAPPINGS[skey] = s
     NODE_CLASS_MAPPINGS[dkey] = d
-    pretty = _t.title().replace("_", " ")
+    pretty = _pretty(_t)
     NODE_DISPLAY_NAME_MAPPINGS[skey] = f"Serialize {pretty}"
     NODE_DISPLAY_NAME_MAPPINGS[dkey] = f"Deserialize {pretty}"
