@@ -4,6 +4,10 @@
 
 import { app } from "../../scripts/app.js";
 
+// The Code2Collapse house look on the canvas (night title bar and body, only
+// where a node has no colour of its own). Same file ships in every pack.
+import "./_c2c_brand.js";
+
 // Per-ecosystem widget modules. Each one self-registers via
 // app.registerExtension when imported.
 import "./widgets/_nukemax_kit.js";
