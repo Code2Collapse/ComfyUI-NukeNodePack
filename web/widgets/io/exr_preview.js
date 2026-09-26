@@ -10,6 +10,7 @@
 // node.imgs / raw canvas draws do not render on Vue.
 
 import { app } from "../../../../scripts/app.js";
+import { cssVar } from "../_nukemax_theme.js";
 
 const TARGETS = new Set(["NukeMax_EXRSequenceLoad", "NukeMax_EXRChannelRouter"]);
 const PATH_WIDGETS = ["path", "file_path", "filename", "exr_path"];
@@ -32,8 +33,8 @@ function mkBtn(label, title) {
     b.title = title;
     css(b, {
         font: "11px system-ui, sans-serif", padding: "3px 8px", cursor: "pointer",
-        background: "var(--comfy-input-bg, #222)", color: "var(--input-text, #ddd)",
-        border: "1px solid var(--border-color, #444)", borderRadius: "4px",
+        background: cssVar("inputBg"), color: cssVar("text"),
+        border: `1px solid ${cssVar("border")}`, borderRadius: "4px",
     });
     return b;
 }
@@ -43,8 +44,8 @@ function mkSelect(title) {
     s.title = title;
     css(s, {
         font: "11px system-ui, sans-serif", maxWidth: "130px",
-        background: "var(--comfy-input-bg, #222)", color: "var(--input-text, #ddd)",
-        border: "1px solid var(--border-color, #444)", borderRadius: "4px",
+        background: cssVar("inputBg"), color: cssVar("text"),
+        border: `1px solid ${cssVar("border")}`, borderRadius: "4px",
     });
     return s;
 }
@@ -53,7 +54,7 @@ function build(node) {
     const box = document.createElement("div");
     css(box, { display: "flex", flexDirection: "column", gap: "4px", width: "100%",
                height: "100%", overflow: "hidden",
-               font: "11px system-ui, sans-serif", color: "var(--input-text, #ddd)" });
+               font: "11px system-ui, sans-serif", color: cssVar("text") });
 
     // ---- row 1: identity + collapse ----------------------------------------
     const row1 = document.createElement("div");
@@ -117,8 +118,8 @@ function build(node) {
     const imgWrap = document.createElement("div");
     css(imgWrap, { flex: "1 1 auto", minHeight: "0", display: "flex",
                    alignItems: "center", justifyContent: "center",
-                   background: "var(--comfy-menu-bg, #1a1a1a)",
-                   border: "1px solid var(--border-color, #444)", borderRadius: "4px",
+                   background: cssVar("bg"),
+                   border: `1px solid ${cssVar("border")}`, borderRadius: "4px",
                    overflow: "hidden" });
     const img = document.createElement("img");
     css(img, { maxWidth: "100%", maxHeight: "100%", objectFit: "contain",

@@ -25,6 +25,11 @@
 // would look right on a square and lie on a 16:9 plate.
 
 import { app } from "../../../../scripts/app.js";
+// cssVar only: this file's CSS is a MODULE-LEVEL template literal, so a
+// color() call in it would resolve once at import - before the theme's
+// stylesheet exists - and freeze the fallback into the string for the life of
+// the page. A var() keeps re-resolving, which is the whole point of it.
+import { cssVar } from "../_nukemax_theme.js";
 
 const NODE_NAME = "NukeMax_ReLight2D";
 const STATE = "_nmxLight2D";
@@ -51,7 +56,7 @@ const LIGHTS = [
 
 const CSS = `
 .nmx-l2-wrap{padding:6px 8px 8px;font:12px system-ui,-apple-system,sans-serif;}
-.nmx-l2-stage{position:relative;width:100%;background:#15171b;border:1px solid #33383f;
+.nmx-l2-stage{position:relative;width:100%;background:${cssVar("bg")};border:1px solid ${cssVar("border")};
   border-radius:6px;overflow:hidden;cursor:crosshair;touch-action:none;}
 .nmx-l2-grid{position:absolute;inset:0;pointer-events:none;
   background-image:linear-gradient(#ffffff0d 1px,transparent 1px),
@@ -65,10 +70,10 @@ const CSS = `
 .nmx-l2-dot[data-drag="1"]{cursor:grabbing;transform:translate(-50%,-50%) scale(1.18);}
 .nmx-l2-dot[data-off="1"]{opacity:.28;}
 .nmx-l2-tag{position:absolute;transform:translate(-50%,-50%);pointer-events:none;
-  font:600 9px ui-monospace,monospace;color:#101215;}
+  font:600 9px ui-monospace,monospace;color:${cssVar("onAccent")};}
 .nmx-l2-foot{display:flex;justify-content:space-between;gap:8px;
-  margin-top:5px;color:#8b94a3;font-size:11px;}
-.nmx-l2-foot b{color:#c9d1d9;font-weight:600;font-variant-numeric:tabular-nums;}
+  margin-top:5px;color:${cssVar("dim")};font-size:11px;}
+.nmx-l2-foot b{color:${cssVar("text")};font-weight:600;font-variant-numeric:tabular-nums;}
 `;
 
 function injectCss() {

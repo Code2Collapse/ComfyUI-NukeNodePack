@@ -28,6 +28,7 @@
 // Plain ES module, no Vue, addDOMWidget so it renders on both frontends.
 
 import { app } from "../../../../scripts/app.js";
+import { cssVar } from "../_nukemax_theme.js";
 
 const ST = "_nmViewer";
 const NODE_NAME = "NukeMax_Viewer";
@@ -50,7 +51,7 @@ function build() {
   const root = document.createElement("div");
   css(root, {
     width: "100%", boxSizing: "border-box", padding: "2px",
-    font: "10px system-ui,sans-serif", color: "var(--input-text,#ddd)",
+    font: "10px system-ui,sans-serif", color: cssVar("text"),
     display: "flex", flexDirection: "column", gap: "3px",
   });
 
@@ -64,7 +65,7 @@ function build() {
     b.title = `${c.hint} — press ${c.label[0]}`;
     css(b, {
       flex: "0 0 auto", padding: "1px 6px", borderRadius: "3px",
-      border: "1px solid var(--border-color,#444)", cursor: "pointer",
+      border: `1px solid ${cssVar("border")}`, cursor: "pointer",
       background: "transparent", color: "inherit", font: "inherit",
     });
     bar.append(b);
@@ -83,7 +84,7 @@ function build() {
   bake.title = "write this view into the node's gain and gamma widgets";
   css(bake, {
     flex: "0 0 auto", padding: "1px 6px", borderRadius: "3px",
-    border: "1px solid var(--border-color,#444)", cursor: "pointer",
+    border: `1px solid ${cssVar("border")}`, cursor: "pointer",
     background: "transparent", color: "inherit", font: "inherit",
   });
 
@@ -93,7 +94,7 @@ function build() {
   css(stage, {
     position: "relative", width: "100%", height: `${VIEW_H}px`,
     display: "flex", alignItems: "center", justifyContent: "center",
-    background: "#161616", borderRadius: "3px", overflow: "hidden",
+    background: cssVar("bg"), borderRadius: "3px", overflow: "hidden",
   });
 
   const canvas = document.createElement("canvas");
@@ -176,8 +177,8 @@ function attach(node) {
     for (const c of CHANNELS) {
       const on = st.channel === c.key;
       const b = ui.chips[c.key];
-      b.style.background = on ? "var(--input-text,#ddd)" : "transparent";
-      b.style.color = on ? "#111" : "inherit";
+      b.style.background = on ? cssVar("text") : "transparent";
+      b.style.color = on ? cssVar("onAccent") : "inherit";
       b.style.opacity = on ? "1" : ".7";
     }
     const gain = Math.pow(2, st.stops);

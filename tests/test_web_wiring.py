@@ -134,14 +134,17 @@ def test_no_widget_module_imports_a_sibling_pack():
 # ── the uniform layer: every node gets the same house treatment ─────────────
 
 def _family_colour_keys() -> list[str]:
-    """The FAMILY_COLOR keys, read out of the kit rather than duplicated here."""
-    kit = (WEB / "widgets" / "_nukemax_kit.js").read_text(encoding="utf-8")
-    block = kit.split("const FAMILY_COLOR = {", 1)[1].split("};", 1)[0]
-    return re.findall(r"(\w+)\s*:", block)
+    """The family names, read out of the theme module rather than duplicated
+    here. They used to live in _nukemax_kit.js as FAMILY_COLOR, twenty-six
+    literal hexes; they are palette keys now so the badges follow the theme."""
+    src = (WEB / "widgets" / "_nukemax_theme.js").read_text(encoding="utf-8")
+    block = src.split("const FAMILY = {", 1)[1].split("\n};", 1)[0]
+    return re.findall(r"^\s*(\w+)\s*:", block, re.M)
 
 
 def _family_of(category: str, keys: list[str]) -> str:
-    """Mirrors familyOf() in _nukemax_kit.js."""
+    """Mirrors familyOf() in _nukemax_kit.js, which now reads its names from
+    familyNames() in _nukemax_theme.js."""
     tail = category.split("/")[-1] if category else ""
     if tail in keys:
         return tail
@@ -166,8 +169,8 @@ def test_every_category_resolves_to_a_family_badge():
         if not _family_of(category, keys):
             blank.setdefault(category, []).append(node_id)
     assert not blank, (
-        "these categories render a blank family badge; add a FAMILY_COLOR entry "
-        "in web/widgets/_nukemax_kit.js: "
+        "these categories render a blank family badge; add a FAMILY entry "
+        "in web/widgets/_nukemax_theme.js: "
         + ", ".join(f"{c} ({len(n)} nodes)" for c, n in sorted(blank.items()))
     )
 

@@ -29,23 +29,17 @@ const ST = "_nmKit";
 import { humaniseError } from "./_nukemax_errors.js";
 export { humaniseError };
 
-// ── family badge ────────────────────────────────────────────────────────────
-const FAMILY_COLOR = {
-  Color: "#c8894a", Filter: "#5a8fc8", Merge: "#7db35a", Keying: "#4fb3a5",
-  Transform: "#a07cc8", Deep: "#c85a7d", Mocha: "#d1a33a", OCIO: "#c8894a",
-  IO: "#8a8a8a", Roto: "#d16a6a", Flow: "#5aa8c8", Relight: "#d1a33a",
-  Generate: "#8a8a8a", Channel: "#7db35a", FFT: "#5aa8c8", Edges: "#4fb3a5",
-  Lens: "#a07cc8", Audio: "#c85a7d", Time: "#8a8a8a", NkScript: "#8a8a8a",
-  HDR: "#e0a24a", Viewer: "#6fa8d1", Geometry: "#a07cc8",
-  Metadata: "#8a8a8a", PlateTools: "#7db35a", Render: "#c85a7d",
-  Utils: "#8a8a8a",
-};
+// The badge hues used to be twenty-six literals here. They live in
+// _nukemax_theme.js now, as PALETTE keys, so they move with the theme rather
+// than clashing with whichever ground is behind them.
+import { cssVar, familyColor, familyNames, onBadge } from "./_nukemax_theme.js";
 
 function familyOf(nodeData) {
   const cat = String(nodeData?.category || "");
   const tail = cat.split("/").pop() || "";
-  if (FAMILY_COLOR[tail]) return tail;
-  for (const k of Object.keys(FAMILY_COLOR)) if (cat.includes(k)) return k;
+  const names = familyNames();
+  if (names.includes(tail)) return tail;
+  for (const k of names) if (cat.includes(k)) return k;
   return "";
 }
 
@@ -55,7 +49,7 @@ function buildStrip(family) {
   const el = document.createElement("div");
   el.style.cssText =
     "display:flex;align-items:center;gap:6px;width:100%;" +
-    "font:10px system-ui,sans-serif;color:var(--input-text,#ddd);" +
+    `font:10px system-ui,sans-serif;color:${cssVar("text")};` +
     "padding:1px 2px;box-sizing:border-box;min-height:14px;";
 
   const badge = document.createElement("span");
@@ -63,8 +57,8 @@ function buildStrip(family) {
     badge.textContent = family;
     badge.style.cssText =
       `flex:0 0 auto;padding:0 5px;border-radius:7px;font-size:9px;` +
-      `letter-spacing:.3px;background:${FAMILY_COLOR[family] || "#666"};` +
-      `color:#111;opacity:.9;`;
+      `letter-spacing:.3px;background:${familyColor(family)};` +
+      `color:${onBadge()};opacity:.9;`;
   }
 
   const status = document.createElement("span");
@@ -78,7 +72,7 @@ function buildStrip(family) {
 function setStatus(st, text, tone) {
   st.status.textContent = text || "";
   st.status.style.color =
-    tone === "error" ? "#e06c6c" : tone === "ok" ? "var(--input-text,#ddd)" : "";
+    tone === "error" ? cssVar("danger") : tone === "ok" ? cssVar("text") : "";
   st.status.style.opacity = tone === "error" ? "1" : ".7";
   st.status.title = st.fullError || "";
 }

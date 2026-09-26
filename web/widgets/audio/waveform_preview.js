@@ -7,6 +7,7 @@
 
 import { app } from "../../../../scripts/app.js";
 import { installCanvasWidget } from "../_vue_canvas.js";
+import { color } from "../_nukemax_theme.js";
 
 const NODE_NAME = "NukeMax_AudioLoadAnalyze";
 
@@ -65,17 +66,17 @@ function createWaveformWidget(node) {
         draw(ctx, node, w, y, h) {
             const height = 96;
             ctx.save();
-            ctx.fillStyle = "#1a1a22";
+            ctx.fillStyle = color("bg");
             ctx.fillRect(0, y, w, height);
             if (!state.loaded) {
                 // Empty state — a clear centered invitation instead of a flat
                 // dark block that reads as an unfinished node. Faint baseline
                 // ticks hint at the waveform strip.
-                ctx.strokeStyle = "#22222c";
+                ctx.strokeStyle = color("panel");
                 ctx.beginPath();
                 ctx.moveTo(0, y + height / 2); ctx.lineTo(w, y + height / 2);
                 ctx.stroke();
-                ctx.fillStyle = "#2a2a34";
+                ctx.fillStyle = color("panel");
                 for (let i = 0; i < 48; i++) {
                     const bx = (i + 0.5) * (w / 48);
                     ctx.fillRect(bx - 1, y + height / 2 - 3, 2, 6);
@@ -97,7 +98,7 @@ function createWaveformWidget(node) {
                 return;
             }
             // Center line
-            ctx.strokeStyle = "#2a2a32";
+            ctx.strokeStyle = color("grid");
             ctx.beginPath();
             ctx.moveTo(0, y + height / 2);
             ctx.lineTo(w, y + height / 2);
@@ -105,14 +106,14 @@ function createWaveformWidget(node) {
             // Bars
             const N = state.bars.length;
             const bw = w / N;
-            ctx.fillStyle = "#5cf";
+            ctx.fillStyle = color("accent");
             for (let i = 0; i < N; i++) {
                 const v = state.bars[i];
                 const bh = Math.max(1, v * (height - 8));
                 ctx.fillRect(i * bw + 1, y + (height - bh) / 2, bw - 2, bh);
             }
             // Label
-            ctx.fillStyle = "#aaa";
+            ctx.fillStyle = color("dim");
             ctx.font = "10px monospace";
             ctx.fillText(`${state.path.split(/[\\/]/).pop() || ""}  ${state.duration.toFixed(2)}s`, 6, y + 12);
             ctx.restore();

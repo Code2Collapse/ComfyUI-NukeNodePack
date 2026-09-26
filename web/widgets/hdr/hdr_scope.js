@@ -26,6 +26,7 @@ import {
   toneMapResponse,
   TONEMAP_PRESETS,
 } from "./hdr_curves.js";
+import { color, cssVar } from "../_nukemax_theme.js";
 
 const ST = "_nmHdrScope";
 const PLOT_H = 132;
@@ -33,25 +34,15 @@ const PLOT_H = 132;
 // ── theme ───────────────────────────────────────────────────────────────────
 // A canvas fillStyle CANNOT parse `var(--x)` - it silently stays black, which
 // is how a plot becomes an empty rectangle. Resolve to real colours once.
-function resolveTheme(el) {
-  const fallback = {
-    ink: "#d6d6d6", dim: "#8a8a8a", grid: "#3a3a3a",
-    curve: "#c8894a", accent: "#4fb3a5", warn: "#e06c6c", bg: "#1e1e1e",
+function plotTheme() {
+  return {
+    bg: color("bg"),
+    grid: color("grid"),
+    curve: color("warn"),
+    accent: color("accent"),
+    dim: color("dim"),
+    warn: color("danger"),
   };
-  try {
-    const cs = getComputedStyle(el);
-    const read = (name, def) => {
-      const v = cs.getPropertyValue(name).trim();
-      return v && !v.startsWith("var(") ? v : def;
-    };
-    return {
-      ...fallback,
-      ink: read("--input-text", fallback.ink),
-      bg: read("--comfy-input-bg", fallback.bg),
-    };
-  } catch (_e) {
-    return fallback;
-  }
 }
 
 // ── plot frame ──────────────────────────────────────────────────────────────
@@ -66,7 +57,7 @@ function newCanvas() {
   const cap = document.createElement("div");
   cap.style.cssText =
     "padding:2px 3px 0;opacity:.75;white-space:pre-line;line-height:1.35;" +
-    "color:var(--input-text,#ddd);";
+    `color:${cssVar("text")};`;
   wrap.append(cv, cap);
   return { wrap, cv, cap };
 }
@@ -294,7 +285,7 @@ function attachScope(node, nodeName) {
     st.frame = {
       ctx, cap, dpr,
       w: cv.width, h: cv.height,
-      theme: resolveTheme(wrap),
+      theme: plotTheme(),
     };
     try {
       draw(st, node);
