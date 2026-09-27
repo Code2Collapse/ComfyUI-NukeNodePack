@@ -85,9 +85,12 @@ export function attachKit(node, nodeData) {
   node[ST] = st;
   st.status = ui.status;
 
-  const w = node.addDOMWidget("nukemax_status", "div", ui.el, { serialize: false });
+  const w = node.addDOMWidget("nukemax_status", "div", ui.el, { serialize: false, margin: 2 });
   // One compact row. It must never push the node taller than it needs.
-  w.computeSize = (width) => [width, 15];
+  // ComfyUI insets a DOM widget by `margin` on every side (default 10), so a
+  // 15px slot left the 14px strip -5px of room: it hung ~9px past the node's
+  // bottom edge. A 2px margin in an 18px slot fits it exactly.
+  w.computeSize = (width) => [width, 18];
 
   setStatus(st, "", "");
   return st;
