@@ -25,14 +25,24 @@
 // pulling exposure up recovers nothing that was clipped upstream. The probe
 // reports what is actually in the preview rather than pretending otherwise.
 //
-// Plain ES module, no Vue, addDOMWidget so it renders on both frontends.
+// Plain ES module, no Vue, mountPanel so it renders on both frontends.
 
 import { app } from "../../../../scripts/app.js";
-import { cssVar } from "../_nukemax_theme.js";
+import {
+  mountPanel,
+  pillBar,
+  button,
+  stage,
+  statusLine,
+  installZoomRepaint,
+  canvasBackingScale,
+} from "../../c2c_ui/index.js";
 
 const ST = "_nmViewer";
 const NODE_NAME = "NukeMax_Viewer";
-const VIEW_H = 190;
+const PANEL_MIN = 240;
+const NODE_MIN_W = 380;
+const PREVIEW_H = 160;
 
 const CHANNELS = [
   { key: "rgb", label: "RGB", hint: "all channels" },
@@ -43,90 +53,21 @@ const CHANNELS = [
   { key: "luminance", label: "L", hint: "luminance" },
 ];
 
-// ── DOM ─────────────────────────────────────────────────────────────────────
-
-function css(el, s) { Object.assign(el.style, s); }
-
-function build() {
-  const root = document.createElement("div");
-  css(root, {
-    width: "100%", boxSizing: "border-box", padding: "2px",
-    font: "10px system-ui,sans-serif", color: cssVar("text"),
-    display: "flex", flexDirection: "column", gap: "3px",
-  });
-
-  const bar = document.createElement("div");
-  css(bar, { display: "flex", alignItems: "center", gap: "3px", flexWrap: "wrap" });
-
-  const chips = {};
-  for (const c of CHANNELS) {
-    const b = document.createElement("button");
-    b.textContent = c.label;
-    b.title = `${c.hint} — press ${c.label[0]}`;
-    css(b, {
-      flex: "0 0 auto", padding: "1px 6px", borderRadius: "3px",
-      border: `1px solid ${cssVar("border")}`, cursor: "pointer",
-      background: "transparent", color: "inherit", font: "inherit",
-    });
-    bar.append(b);
-    chips[c.key] = b;
-  }
-
-  const spacer = document.createElement("div");
-  css(spacer, { flex: "1 1 auto" });
-
-  const exposure = document.createElement("span");
-  exposure.title = "view exposure in stops — , and . to step, / to reset";
-  css(exposure, { flex: "0 0 auto", opacity: ".8", fontVariantNumeric: "tabular-nums" });
-
-  const bake = document.createElement("button");
-  bake.textContent = "bake";
-  bake.title = "write this view into the node's gain and gamma widgets";
-  css(bake, {
-    flex: "0 0 auto", padding: "1px 6px", borderRadius: "3px",
-    border: `1px solid ${cssVar("border")}`, cursor: "pointer",
-    background: "transparent", color: "inherit", font: "inherit",
-  });
-
-  bar.append(spacer, exposure, bake);
-
-  const stage = document.createElement("div");
-  css(stage, {
-    position: "relative", width: "100%", height: `${VIEW_H}px`,
-    display: "flex", alignItems: "center", justifyContent: "center",
-    background: cssVar("bg"), borderRadius: "3px", overflow: "hidden",
-  });
-
-  const canvas = document.createElement("canvas");
-  css(canvas, { maxWidth: "100%", maxHeight: "100%", display: "block",
-                imageRendering: "auto", cursor: "crosshair" });
-
-  const empty = document.createElement("div");
-  empty.textContent = "run the graph to see the frame";
-  css(empty, { position: "absolute", opacity: ".55" });
-
-  stage.append(canvas, empty);
-
-  const strip = document.createElement("div");
-  css(strip, { display: "flex", gap: "8px", padding: "0 2px", opacity: ".75",
-               fontVariantNumeric: "tabular-nums", minHeight: "13px" });
-
-  const probe = document.createElement("span");
-  const frameLabel = document.createElement("span");
-  css(frameLabel, { marginLeft: "auto" });
-  strip.append(probe, frameLabel);
-
-  root.append(bar, stage, strip);
-  return { root, bar, chips, exposure, bake, stage, canvas, empty, probe, frameLabel };
+function chainOnRemoved(node, cleanup) {
+  const orig = node.onRemoved;
+  node.onRemoved = function (...a) {
+    try { cleanup?.(); } catch (_e) { /* ignore */ }
+    return orig?.apply(this, a);
+  };
 }
 
-// ── pixel pipeline ──────────────────────────────────────────────────────────
+function widgetByName(node, name) {
+  return (node.widgets || []).find((w) => w.name === name);
+}
 
 /** Isolate a channel and apply view exposure/gamma to one RGBA byte buffer. */
 function shade(src, dst, channel, gain, gamma) {
   const invG = 1.0 / Math.max(gamma, 0.01);
-  // A 256-entry LUT: the same eight arithmetic ops per pixel would cost ~2M
-  // Math.pow calls on a 1080p frame and drop the probe to a crawl.
   const lut = new Uint8ClampedArray(256);
   for (let i = 0; i < 256; i++) {
     const v = Math.pow(Math.min(1, Math.max(0, (i / 255) * gain)), invG);
@@ -141,7 +82,6 @@ function shade(src, dst, channel, gain, gamma) {
       case "blue":  o0 = o1 = o2 = b; break;
       case "alpha": o0 = o1 = o2 = a; break;
       case "luminance": {
-        // Rec.601, matching the node's own luminance branch.
         const l = 0.299 * r + 0.587 * g + 0.114 * b;
         o0 = o1 = o2 = l;
         break;
@@ -155,60 +95,165 @@ function shade(src, dst, channel, gain, gamma) {
   }
 }
 
-// ── widget ──────────────────────────────────────────────────────────────────
+function setupCanvas(canvas, cssW, cssH) {
+  const scale = canvasBackingScale(cssW, cssH);
+  const bw = Math.max(1, Math.round(cssW * scale));
+  const bh = Math.max(1, Math.round(cssH * scale));
+  if (canvas.width !== bw || canvas.height !== bh) {
+    canvas.width = bw;
+    canvas.height = bh;
+  }
+  canvas.style.width = `${cssW}px`;
+  canvas.style.height = `${cssH}px`;
+  return canvas.getContext("2d", { willReadFrequently: true });
+}
 
 function attach(node) {
   if (node[ST]) return node[ST];
-  const ui = build();
+
+  const root = document.createElement("div");
+  root.style.display = "flex";
+  root.style.flexDirection = "column";
+  root.style.gap = "4px";
+  root.style.width = "100%";
+  root.style.height = "100%";
+
+  const bar = document.createElement("div");
+  bar.style.display = "flex";
+  bar.style.alignItems = "center";
+  bar.style.gap = "4px";
+  bar.style.flexWrap = "wrap";
+
+  const pills = pillBar(
+    CHANNELS.map((c) => ({ value: c.key, label: c.label })),
+    {
+      value: "rgb",
+      onChange: (v) => {
+        st.channel = v;
+        st.repaint();
+      },
+    },
+  );
+  for (const c of CHANNELS) {
+    const btn = pills.querySelector(`[data-value="${c.key}"]`);
+    if (btn) btn.title = `${c.hint} — press ${c.label[0]}`;
+  }
+
+  const spacer = document.createElement("div");
+  spacer.style.flex = "1 1 auto";
+
+  const exposureLine = statusLine();
+  exposureLine.el.style.flex = "0 0 auto";
+  exposureLine.el.style.fontVariantNumeric = "tabular-nums";
+
+  const bakeBtn = button("Bake", {
+    onClick: () => {
+      const gain = widgetByName(node, "gain");
+      const gamma = widgetByName(node, "gamma");
+      const channel = widgetByName(node, "channel");
+      if (gain) gain.value = Math.min(5, Math.max(0.1, Math.pow(2, st.stops)));
+      if (gamma) gamma.value = Math.min(3, Math.max(0.1, st.gamma));
+      if (channel && st.channel !== "rgb") channel.value = st.channel;
+      st.stops = 0;
+      st.gamma = 1.0;
+      st.repaint();
+      node.setDirtyCanvas?.(true, true);
+    },
+  });
+  bakeBtn.title = "write this view into the node's gain and gamma widgets";
+
+  bar.append(pills, spacer, exposureLine.el, bakeBtn);
+
+  const previewCanvas = document.createElement("canvas");
+  previewCanvas.style.display = "block";
+  previewCanvas.style.cursor = "crosshair";
+  previewCanvas.style.maxWidth = "100%";
+  previewCanvas.style.maxHeight = "100%";
+
+  const stageApi = stage({
+    aspect: 16 / 9,
+    empty: {
+      title: "Viewer",
+      hint: "Run the graph to see the frame",
+    },
+  });
+
+  const probeLine = statusLine();
+  const frameLine = statusLine();
+  frameLine.el.style.marginLeft = "auto";
+  frameLine.el.style.textAlign = "right";
+
+  const strip = document.createElement("div");
+  strip.style.display = "flex";
+  strip.style.gap = "8px";
+  strip.style.flexWrap = "wrap";
+  strip.style.alignItems = "flex-start";
+  strip.append(probeLine.el, frameLine.el);
+
+  root.append(bar, stageApi.el, strip);
+
   const st = {
-    ui, channel: "rgb", stops: 0, gamma: 1.0,
-    frames: [], index: 0, src: null, raf: 0, dead: false,
+    channel: "rgb",
+    stops: 0,
+    gamma: 1.0,
+    frames: [],
+    index: 0,
+    src: null,
+    shaded: null,
+    dead: false,
+    previewCanvas,
+    stageApi,
+    exposureLine,
+    probeLine,
+    frameLine,
+    pills,
+    zoomOff: null,
+    resizeObs: null,
   };
   node[ST] = st;
 
-  const widget = node.addDOMWidget("nukemax_viewer", "div", ui.root, {
-    serialize: false,
-  });
-  widget.computeSize = (width) => [width, VIEW_H + 40];
+  const panelWidget = mountPanel(node, "nukemax_viewer", root, { minHeight: PANEL_MIN });
+  panelWidget.onPanelResize = () => st.repaint();
 
-  const ctx = ui.canvas.getContext("2d", { willReadFrequently: true });
+  st.repaint = () => {
+    if (st.dead) return;
+    const viewport = stageApi.el.querySelector(".c2c-ui-stage__viewport");
+    const cssW = Math.max(1, viewport?.clientWidth || node.size?.[0] - 40 || 300);
+    const cssH = PREVIEW_H;
 
-  function paintChips() {
-    for (const c of CHANNELS) {
-      const on = st.channel === c.key;
-      const b = ui.chips[c.key];
-      b.style.background = on ? cssVar("text") : "transparent";
-      b.style.color = on ? cssVar("onAccent") : "inherit";
-      b.style.opacity = on ? "1" : ".7";
+    if (!st.src) {
+      stageApi.setEmpty({
+        title: "Viewer",
+        hint: st.emptyMsg || "Run the graph to see the frame",
+      });
+      updateExposureReadout(st);
+      return;
     }
-    const gain = Math.pow(2, st.stops);
-    ui.exposure.textContent =
-      `${st.stops >= 0 ? "+" : ""}${st.stops.toFixed(2)} stop` +
-      (Math.abs(st.stops) === 1 ? "" : "s") +
-      `  ·  x${gain.toFixed(2)}`;
-  }
 
-  function render() {
-    st.raf = 0;
-    if (st.dead || !st.src) return;
     const { w, h, data } = st.src;
-    if (ui.canvas.width !== w || ui.canvas.height !== h) {
-      ui.canvas.width = w;
-      ui.canvas.height = h;
-    }
+    const ctx = setupCanvas(previewCanvas, cssW, cssH);
     const out = ctx.createImageData(w, h);
     shade(data, out.data, st.channel, Math.pow(2, st.stops), st.gamma);
     ctx.putImageData(out, 0, 0);
     st.shaded = out.data;
-    paintChips();
-  }
-
-  st.invalidate = () => {
-    if (st.dead || st.raf) return;
-    st.raf = requestAnimationFrame(render);
+    stageApi.setCanvas(previewCanvas);
+    const frameTxt = st.frames.length > 1
+      ? `${w}×${h} · frame ${st.index + 1}/${st.frames.length}`
+      : `${w}×${h}`;
+    stageApi.setFooter(frameTxt);
+    frameLine.setText(frameTxt);
+    updateExposureReadout(st);
   };
 
-  /** Pull one preview frame into an offscreen buffer we can re-shade. */
+  function updateExposureReadout(st) {
+    const gain = Math.pow(2, st.stops);
+    exposureLine.setText(
+      `${st.stops >= 0 ? "+" : ""}${st.stops.toFixed(2)} stop` +
+      (Math.abs(st.stops) === 1 ? "" : "s") +
+      ` · x${gain.toFixed(2)}`,
+    );
+  }
+
   function loadFrame(i) {
     const entry = st.frames[i];
     if (!entry) return;
@@ -226,86 +271,59 @@ function attach(node) {
       octx.drawImage(img, 0, 0);
       const d = octx.getImageData(0, 0, off.width, off.height);
       st.src = { w: off.width, h: off.height, data: d.data };
-      ui.empty.style.display = "none";
-      ui.frameLabel.textContent = st.frames.length > 1
-        ? `${off.width}x${off.height}  ·  frame ${i + 1}/${st.frames.length}`
-        : `${off.width}x${off.height}`;
-      st.invalidate();
-      node.setDirtyCanvas(true, true);
+      st.emptyMsg = "";
+      st.repaint();
+      node.setDirtyCanvas?.(true, true);
     };
     img.onerror = () => {
       if (st.dead) return;
-      // The temp file is gone (server restart, temp cleared). Say so rather
-      // than leaving the last render up as if it were current.
       st.src = null;
-      ui.empty.textContent = "preview expired — run the graph again";
-      ui.empty.style.display = "block";
+      st.emptyMsg = "Preview expired — run the graph again";
+      st.repaint();
     };
     img.src = url;
   }
+  st.loadFrame = loadFrame;
 
-  // ── interaction ───────────────────────────────────────────────────────────
-
-  for (const c of CHANNELS) {
-    ui.chips[c.key].onclick = () => {
-      st.channel = st.channel === c.key && c.key !== "rgb" ? "rgb" : c.key;
-      st.invalidate();
-    };
-  }
-
-  ui.bake.onclick = () => {
-    // View -> node. The node's own gain/gamma are what the next render uses.
-    const gain = node.widgets?.find((w) => w.name === "gain");
-    const gamma = node.widgets?.find((w) => w.name === "gamma");
-    const channel = node.widgets?.find((w) => w.name === "channel");
-    if (gain) gain.value = Math.min(5, Math.max(0.1, Math.pow(2, st.stops)));
-    if (gamma) gamma.value = Math.min(3, Math.max(0.1, st.gamma));
-    if (channel && st.channel !== "rgb") channel.value = st.channel;
-    st.stops = 0;
-    st.gamma = 1.0;
-    st.invalidate();
-    node.setDirtyCanvas(true, true);
-  };
-
-  ui.stage.onpointermove = (e) => {
+  previewCanvas.addEventListener("pointermove", (e) => {
     if (!st.src || !st.shaded) return;
-    const r = ui.canvas.getBoundingClientRect();
+    const r = previewCanvas.getBoundingClientRect();
     const x = Math.floor(((e.clientX - r.left) / r.width) * st.src.w);
     const y = Math.floor(((e.clientY - r.top) / r.height) * st.src.h);
     if (x < 0 || y < 0 || x >= st.src.w || y >= st.src.h) {
-      ui.probe.textContent = "";
+      probeLine.setText("");
       return;
     }
     const o = (y * st.src.w + x) * 4;
     const f = (v) => (v / 255).toFixed(3);
-    ui.probe.textContent =
-      `${x},${y}   ${f(st.shaded[o])} ${f(st.shaded[o + 1])} ${f(st.shaded[o + 2])}`;
-  };
-  ui.stage.onpointerleave = () => { ui.probe.textContent = ""; };
+    probeLine.setText(
+      `${x},${y}   ${f(st.shaded[o])} ${f(st.shaded[o + 1])} ${f(st.shaded[o + 2])}`,
+    );
+  });
+  previewCanvas.addEventListener("pointerleave", () => probeLine.setText(""));
 
-  // Scrub frames by dragging across the stage with the button held.
-  ui.stage.onpointerdown = (e) => {
+  const viewport = stageApi.el.querySelector(".c2c-ui-stage__viewport");
+  viewport.addEventListener("pointerdown", (e) => {
     if (st.frames.length < 2) return;
-    ui.stage.setPointerCapture(e.pointerId);
-    const r = ui.stage.getBoundingClientRect();
+    viewport.setPointerCapture(e.pointerId);
+    const r = viewport.getBoundingClientRect();
     const pick = (ev) => {
       const t = (ev.clientX - r.left) / Math.max(1, r.width);
       const i = Math.min(st.frames.length - 1,
-                         Math.max(0, Math.round(t * (st.frames.length - 1))));
+        Math.max(0, Math.round(t * (st.frames.length - 1))));
       if (i !== st.index) loadFrame(i);
     };
     pick(e);
-    ui.stage.onpointermove = pick;
+    const onMove = (ev) => pick(ev);
+    viewport.addEventListener("pointermove", onMove);
     const up = () => {
-      ui.stage.releasePointerCapture(e.pointerId);
-      ui.stage.onpointermove = null;
+      viewport.releasePointerCapture(e.pointerId);
+      viewport.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", up);
     };
     window.addEventListener("pointerup", up);
-  };
+  });
 
-  // Keyboard, but ONLY while this node is the selected one - a global R/G/B
-  // binding would fight the graph's own shortcuts.
   st.onKey = (e) => {
     if (st.dead || e.ctrlKey || e.metaKey || e.altKey) return;
     if (!app.canvas?.selected_nodes?.[node.id]) return;
@@ -315,30 +333,42 @@ function attach(node) {
     const map = { r: "red", g: "green", b: "blue", a: "alpha", l: "luminance" };
     if (map[k]) {
       st.channel = st.channel === map[k] ? "rgb" : map[k];
+      const pillBtn = pills.querySelector(`[data-value="${st.channel}"]`);
+      pillBtn?.click();
     } else if (k === ",") {
       st.stops = Math.max(-8, st.stops - 0.25);
+      st.repaint();
     } else if (k === ".") {
       st.stops = Math.min(8, st.stops + 0.25);
+      st.repaint();
     } else if (k === "/") {
-      st.stops = 0; st.gamma = 1.0; st.channel = "rgb";
+      st.stops = 0;
+      st.gamma = 1.0;
+      st.channel = "rgb";
+      pills.querySelector('[data-value="rgb"]')?.click();
+      st.repaint();
     } else {
       return;
     }
     e.preventDefault();
-    st.invalidate();
   };
   window.addEventListener("keydown", st.onKey);
 
-  const onRemoved = node.onRemoved;
-  node.onRemoved = function (...args) {
-    st.dead = true;
-    if (st.raf) cancelAnimationFrame(st.raf);
-    window.removeEventListener("keydown", st.onKey);
-    return onRemoved?.apply(this, args);
-  };
+  st.zoomOff = installZoomRepaint(node, () => st.repaint(), "_c2cNmViewerZoom");
+  if (typeof ResizeObserver !== "undefined") {
+    st.resizeObs = new ResizeObserver(() => st.repaint());
+    st.resizeObs.observe(stageApi.el);
+  }
 
-  st.loadFrame = loadFrame;
-  paintChips();
+  chainOnRemoved(node, () => {
+    st.dead = true;
+    try { st.zoomOff?.(); } catch (_e) { /* ignore */ }
+    try { st.resizeObs?.disconnect(); } catch (_e) { /* ignore */ }
+    window.removeEventListener("keydown", st.onKey);
+    delete node[ST];
+  });
+
+  st.repaint();
   return st;
 }
 
@@ -351,6 +381,7 @@ app.registerExtension({
     const onCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
       const r = onCreated?.apply(this, arguments);
+      if (this.size[0] < NODE_MIN_W) this.size[0] = NODE_MIN_W;
       try { attach(this); } catch (_e) { /* never break the node */ }
       return r;
     };
@@ -364,9 +395,9 @@ app.registerExtension({
         st.frames = images;
         st.loadFrame(0);
       } else if (st) {
-        st.ui.empty.textContent =
-          "no preview written — check the log for a Pillow or temp-dir problem";
-        st.ui.empty.style.display = "block";
+        st.src = null;
+        st.emptyMsg = "No preview written — check the log for a Pillow or temp-dir problem";
+        st.repaint();
       }
       return r;
     };

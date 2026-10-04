@@ -192,11 +192,16 @@ app.registerExtension({
         // Add right-click canvas menu items.
         const origMenu = LGraphCanvas.prototype.getCanvasMenuOptions;
         LGraphCanvas.prototype.getCanvasMenuOptions = function () {
-            const opts = origMenu.apply(this, arguments) || [];
-            opts.push(null);
-            opts.push({ content: "Copy as NkScript (Ctrl+Shift+C)", callback: _copy });
-            opts.push({ content: "Paste NkScript (Ctrl+Shift+V)", callback: _paste });
-            return opts;
+            try {
+                const opts = origMenu.apply(this, arguments) || [];
+                opts.push(null);
+                opts.push({ content: "Copy as NkScript (Ctrl+Shift+C)", callback: _copy });
+                opts.push({ content: "Paste NkScript (Ctrl+Shift+V)", callback: _paste });
+                return opts;
+            } catch (err) {
+                console.warn("[NkScript] menu patch error:", err);
+                return origMenu ? origMenu.apply(this, arguments) || [] : [];
+            }
         };
     },
 });

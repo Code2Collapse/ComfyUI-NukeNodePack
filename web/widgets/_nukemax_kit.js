@@ -32,7 +32,7 @@ export { humaniseError };
 // The badge hues used to be twenty-six literals here. They live in
 // _nukemax_theme.js now, as PALETTE keys, so they move with the theme rather
 // than clashing with whichever ground is behind them.
-import { cssVar, familyColor, familyNames, onBadge } from "./_nukemax_theme.js";
+import { cssVar, familyColor, familyNames } from "./_nukemax_theme.js";
 
 function familyOf(nodeData) {
   const cat = String(nodeData?.category || "");
@@ -55,10 +55,14 @@ function buildStrip(family) {
   const badge = document.createElement("span");
   if (family) {
     badge.textContent = family;
+    // a ghost chip: the family hue as text and edge over a faint tint of it -
+    // a solid pastel pill read as a stock tag on the night body
+    const hue = familyColor(family);
     badge.style.cssText =
-      `flex:0 0 auto;padding:0 5px;border-radius:7px;font-size:9px;` +
-      `letter-spacing:.3px;background:${familyColor(family)};` +
-      `color:${onBadge()};opacity:.9;`;
+      "flex:0 0 auto;padding:0 6px;border-radius:4px;font-size:9px;font-weight:600;" +
+      `letter-spacing:.06em;text-transform:uppercase;line-height:12px;color:${hue};` +
+      `background:color-mix(in srgb, ${hue} 14%, transparent);` +
+      `border:1px solid color-mix(in srgb, ${hue} 45%, transparent);`;
   }
 
   const status = document.createElement("span");

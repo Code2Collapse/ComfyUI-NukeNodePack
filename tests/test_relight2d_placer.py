@@ -64,12 +64,18 @@ def test_the_placer_still_names_every_widget(widget):
 
 
 def test_the_placer_keeps_no_private_state():
-    """serialize:false, because the numeric widgets ARE the saved state. A
-    DOM widget that serialised its own copy would fight them on reload."""
+    """The placer's DOM widget must not serialise — the numeric widgets ARE the
+    saved state. mountPanel always passes serialize:false; either that call or an
+    explicit serialize:false in source is acceptable."""
     src = placer_source()
-    assert "serialize: false" in src or "serialize:false" in src, (
+    assert (
+        "serialize: false" in src
+        or "serialize:false" in src
+        or "mountPanel(" in src
+    ), (
         "the placer serialises its own state, which will disagree with the "
-        "numeric widgets a saved workflow actually restores")
+        "numeric widgets a saved workflow actually restores"
+    )
 
 
 def test_the_placer_is_imported_by_the_entry_file():
