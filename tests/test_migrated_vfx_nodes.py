@@ -82,6 +82,25 @@ class TestColorSpaceConvert:
         out, = node.convert(small_image, "linear", "linear")
         assert torch.equal(out, small_image)
 
+    def test_logc3_matches_arri_and_keeps_the_toe_and_highlights(self):
+        # ARRI EI 800: linear 0 -> 0.092809 (toe), 0.18 -> 0.391007, code 1.0 -> 55.08 (not clipped)
+        node = ColorSpaceConvertMEC()
+        lin = torch.tensor([0.0, 0.005, 0.18, 1.0, 20.0]).view(1, 1, 5, 1).expand(1, 1, 5, 3).contiguous()
+        log, = node.convert(lin, "linear", "logc3")
+        assert abs(float(log[0, 0, 0, 0]) - 0.092809) < 1e-5
+        assert abs(float(log[0, 0, 2, 0]) - 0.391007) < 1e-5
+        assert float(log[0, 0, 1, 0]) < float(log[0, 0, 2, 0])          # the toe stays dark
+        back, = node.convert(log, "logc3", "linear")
+        assert torch.allclose(back, lin, rtol=1e-5, atol=1e-6)
+        top, = node.convert(torch.ones(1, 1, 1, 3), "logc3", "linear")
+        assert abs(float(top[0, 0, 0, 0]) - 55.08) < 0.05
+
+    def test_logc3_to_srgb_goes_through_linear(self, small_image):
+        node = ColorSpaceConvertMEC()
+        log, = node.convert(small_image, "srgb", "logc3")
+        rt, = node.convert(log, "logc3", "srgb")
+        assert torch.allclose(rt, small_image, atol=1e-4)
+
 
 class TestLUTApply:
     def _write_identity_3d_cube(self, path: Path, size: int = 4) -> Path:

@@ -220,7 +220,7 @@ Regenerate after changing any node's `INPUT_TYPES`.
 
 **Shown in the menu as:** Color Space Convert (C2C)
 
-Convert IMAGE between sRGB, linear, Rec.709, and ACEScg.
+Convert IMAGE between sRGB, linear, Rec.709, ACEScg and the ARRI LogC3 curve.
 
 
 **Required inputs**
@@ -228,8 +228,8 @@ Convert IMAGE between sRGB, linear, Rec.709, and ACEScg.
 | Parameter | Type | Constraints | What it does |
 |---|---|---|---|
 | `image` | `IMAGE` |  | Image batch to convert. |
-| `src_space` | choice: `srgb`, `linear`, `rec709`, `acescg` | default `"srgb"` | Color space the input image is encoded in. |
-| `dst_space` | choice: `srgb`, `linear`, `rec709`, `acescg` | default `"linear"` | Color space to convert the image into. |
+| `src_space` | choice: `srgb`, `linear`, `rec709`, `acescg`, `logc3` | default `"srgb"` | Color space the input image is encoded in. logc3 = the ARRI LogC3 (EI 800) curve only; camera footage also needs its gamut converted (OCIO Color Transform). |
+| `dst_space` | choice: `srgb`, `linear`, `rec709`, `acescg`, `logc3` | default `"linear"` | Color space to convert the image into. |
 
 **Outputs**
 

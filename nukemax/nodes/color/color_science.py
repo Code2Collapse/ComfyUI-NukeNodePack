@@ -81,7 +81,15 @@ def _apply_matrix(rgb: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
     return out
 
 
-_SPACES = ["srgb", "linear", "rec709", "acescg"]
+_SPACES = ["srgb", "linear", "rec709", "acescg", "logc3"]
+
+
+def _logc3(t: torch.Tensor, to_linear: bool) -> torch.Tensor:
+    """ARRI LogC3 (EI 800) transfer curve only - primaries unchanged, nothing clipped. The pack's one LogC3
+    (ocio_color/_curves.py, float64); for camera footage use OCIO Color Transform, which also changes gamut."""
+    from ..ocio_color._curves import _lin_to_logc3, _logc3_to_lin
+    out = (_logc3_to_lin if to_linear else _lin_to_logc3)(t.detach().cpu().numpy())
+    return torch.from_numpy(out).to(device=t.device, dtype=t.dtype)
 
 
 def _convert(img: torch.Tensor, src: str, dst: str) -> torch.Tensor:
@@ -95,6 +103,8 @@ def _convert(img: torch.Tensor, src: str, dst: str) -> torch.Tensor:
         ref = _rec709_to_linear(img)
     elif src == "acescg":
         ref = _apply_matrix(img, _M_ACESCG_TO_SRGB)
+    elif src == "logc3":
+        ref = _logc3(img, to_linear=True)
     elif src == "linear":
         ref = img
     else:
@@ -106,6 +116,8 @@ def _convert(img: torch.Tensor, src: str, dst: str) -> torch.Tensor:
         return _linear_to_rec709(ref).clamp(0.0, 1.0)
     if dst == "acescg":
         return _apply_matrix(ref, _M_SRGB_TO_ACESCG)
+    if dst == "logc3":
+        return _logc3(ref, to_linear=False)
     if dst == "linear":
         return ref
     raise ValueError(f"Unknown destination space: {dst}")
@@ -125,7 +137,9 @@ class ColorSpaceConvertMEC:
         return {
             "required": {
                 "image": ("IMAGE", {"tooltip": "Image batch to convert."}),
-                "src_space": (_SPACES, {"default": "srgb", "tooltip": "Color space the input image is encoded in."}),
+                "src_space": (_SPACES, {"default": "srgb", "tooltip": "Color space the input image is encoded in. "
+                              "logc3 = the ARRI LogC3 (EI 800) curve only; camera footage also needs its gamut "
+                              "converted (OCIO Color Transform)."}),
                 "dst_space": (_SPACES, {"default": "linear", "tooltip": "Color space to convert the image into."}),
             },
         }
@@ -135,7 +149,7 @@ class ColorSpaceConvertMEC:
     OUTPUT_TOOLTIPS = ("Image converted into the destination color space.",)
     FUNCTION = "convert"
     CATEGORY = "C2C/Color"
-    DESCRIPTION = "Convert IMAGE between sRGB, linear, Rec.709, and ACEScg."
+    DESCRIPTION = "Convert IMAGE between sRGB, linear, Rec.709, ACEScg and the ARRI LogC3 curve."
 
     def convert(self, image: torch.Tensor, src_space: str, dst_space: str):
         require_image_bhwc(image)
