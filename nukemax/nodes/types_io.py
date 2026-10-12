@@ -77,7 +77,15 @@ def _make_deserialize(type_name: str):
             return {"required": {"payload": ("STRING", {"multiline": True, "default": ""})}}
 
         def execute(self, payload):
-            d = json.loads(payload)
+            # L7.87: an empty or broken payload raised a bare JSONDecodeError ("Expecting value: line 1 column 1")
+            if not str(payload or "").strip():
+                raise ValueError(f"Deserialize {type_name}: paste the JSON a Serialize {type_name} node produced "
+                                 "into 'payload'.")
+            try:
+                d = json.loads(payload)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Deserialize {type_name}: 'payload' is not valid JSON ({exc.msg} at line "
+                                 f"{exc.lineno}, column {exc.colno}).") from exc
             return (ser_mod.deserialize(d),)
 
     _Deserialize.__name__ = f"Deserialize_{type_name}"

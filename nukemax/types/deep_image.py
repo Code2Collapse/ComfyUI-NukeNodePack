@@ -39,18 +39,39 @@ class DeepImage:
     @classmethod
     def from_image_depth(cls, image_bhwc: torch.Tensor, depth_bhw: torch.Tensor,
                          alpha: torch.Tensor | None = None) -> "DeepImage":
-        """Build a single-sample DeepImage from a flat IMAGE + depth map."""
+        """Build a single-sample DeepImage from a flat IMAGE + depth map.
+
+        A one-frame depth / alpha is used for every frame of the image (L7.87: a 2-frame image with a 1-frame depth
+        crashed with "shape '[2, 1, 64, 64]' is invalid for input of size 4096").
+        """
         B, H, W, C = image_bhwc.shape
+
+        def per_frame(t: torch.Tensor, name: str) -> torch.Tensor:
+            if t.dim() == 4 and t.shape[-1] in (1, 3, 4):        # an IMAGE / (B,H,W,1) given as a map: first channel
+                t = t[..., 0]
+            if t.dim() == 2:
+                t = t.unsqueeze(0)
+            if tuple(t.shape[-2:]) != (H, W):
+                raise ValueError(f"Deep from image: {name} is {tuple(t.shape[-2:])} pixels, the image {(H, W)} - "
+                                 f"give a {name} the size of the image.")
+            if t.shape[0] == 1 and B > 1:
+                t = t.expand(B, H, W)
+            elif t.shape[0] != B:
+                raise ValueError(f"Deep from image: {name} has {t.shape[0]} frames, the image {B} - give one per "
+                                 f"frame or a single one for all frames.")
+            return t
+
+        depth_bhw = per_frame(depth_bhw, "depth")
         rgba = torch.zeros(B, 1, H, W, 4, device=image_bhwc.device, dtype=image_bhwc.dtype)
         rgb = image_bhwc[..., :3]
         if alpha is None:
             a = image_bhwc[..., 3:4] if C == 4 else torch.ones(B, H, W, 1, device=image_bhwc.device, dtype=image_bhwc.dtype)
         else:
-            a = alpha.view(B, H, W, 1) if alpha.dim() == 3 else alpha
+            a = per_frame(alpha, "alpha").reshape(B, H, W, 1).to(image_bhwc.dtype)
         # premultiply
         rgba[:, 0, :, :, :3] = rgb * a
         rgba[:, 0, :, :, 3:4] = a
-        z = depth_bhw.view(B, 1, H, W).to(image_bhwc.dtype)
+        z = depth_bhw.reshape(B, 1, H, W).to(image_bhwc.dtype)
         cnt = (a.squeeze(-1) > 1e-5).to(torch.int32)
         return cls(samples_z=z, samples_rgba=rgba, sample_count=cnt)
 

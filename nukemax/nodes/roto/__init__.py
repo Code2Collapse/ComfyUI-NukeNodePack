@@ -120,7 +120,12 @@ class RotoShapeFromFile:
 
     def execute(self, path: str):
         from pathlib import Path
+        # L7.87: an empty path opened '.' ("PermissionError: [Errno 13] Permission denied: '.'")
+        if not str(path or "").strip():
+            raise ValueError("Roto shape from file: enter the path of a roto JSON file.")
         p = Path(path)
+        if not p.is_file():
+            raise FileNotFoundError(f"Roto shape from file: no file at {str(p)!r}.")
         with p.open("r", encoding="utf-8") as f:
             txt = f.read()
         editor = RotoSplineEditor()

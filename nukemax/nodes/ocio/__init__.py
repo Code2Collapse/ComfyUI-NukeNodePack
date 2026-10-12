@@ -156,6 +156,36 @@ def _apply_processor(image: torch.Tensor, processor) -> torch.Tensor:
     return torch.from_numpy(arr).to(image.device)
 
 
+# ACES 1.x "Output - <display>" colorspaces had the output transform baked in; OCIO 2 configs (the built-in ACES 2.0
+# cg / studio configs) express the same thing as display + view. The node's own default dst ("Output - sRGB") failed
+# on every built-in config (L7.87, tools/c2c_exec_audit.py on the owner's stack, 2026-10-12).
+_ACES1_OUTPUT_DISPLAYS = {
+    "Output - sRGB": "sRGB - Display",
+    "Output - Rec.709": "Rec.1886 Rec.709 - Display",
+    "Output - Rec.2020": "Rec.1886 Rec.2020 - Display",
+    "Output - P3-D65": "P3-D65 - Display",
+    "Output - P3-D60": "P3-D65 - Display",
+    "Output - DCI-P3": "P3-DCI - Display",
+    "Output - Display P3": "Display P3 - Display",
+}
+
+
+def _processor_for(OCIO, cfg, src: str, dst: str):
+    """(processor, resolved_dst, note): an ACES 1.x "Output - X" name falls back to the config's display + its default
+    view when the config has no such colorspace."""
+    try:
+        return cfg.getProcessor(src, dst), dst, None
+    except Exception as first:
+        display = _ACES1_OUTPUT_DISPLAYS.get(dst)
+        if not display or display not in list(cfg.getDisplays()):
+            raise first
+        view = cfg.getDefaultView(display)
+        t = OCIO.DisplayViewTransform(src=src, display=display, view=view)
+        return (cfg.getProcessor(t), f"{display} / {view}",
+                f"'{dst}' is an ACES 1.x output space; this OCIO 2 config expresses it as display '{display}', "
+                f"view '{view}'")
+
+
 @resilient
 class OCIOColorTransform:
     """Convert IMAGE between any two colorspaces of a chosen OCIO config."""
@@ -219,7 +249,7 @@ class OCIOColorTransform:
 
         cfg = _load_config(path)
         try:
-            processor = cfg.getProcessor(src_colorspace, dst_colorspace)
+            processor, dst_resolved, note = _processor_for(OCIO, cfg, src_colorspace, dst_colorspace)
         except Exception as exc:
             spaces = _colorspaces_for(path)
             raise ValueError(
@@ -232,6 +262,8 @@ class OCIOColorTransform:
             "config": path,
             "src": src_colorspace,
             "dst": dst_colorspace,
+            "dst_resolved": dst_resolved,
+            **({"note": note} if note else {}),
             "ocio_version": OCIO.GetVersion(),
         }
         return (out, _json.dumps(info, indent=2))

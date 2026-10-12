@@ -15,7 +15,12 @@ from ... import _interrupt_check as _IC
 from ... import _progress as _PB
 from ..._is_changed_util import hash_args_and_kwargs
 def _load_audio(path: str) -> tuple[torch.Tensor, int]:
+    # L7.87: an empty path reached soundfile as '.' ("Error opening '.': System error")
+    if not str(path or "").strip():
+        raise ValueError("Audio: enter the path of an audio file (wav, flac, mp3, ...).")
     p = Path(path)
+    if not p.is_file():
+        raise FileNotFoundError(f"Audio: no file at {str(p)!r}.")
     try:
         import soundfile as sf  # type: ignore
         wav, sr = sf.read(str(p), dtype="float32", always_2d=False)

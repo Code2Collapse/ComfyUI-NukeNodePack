@@ -336,5 +336,11 @@ def parse_to_json(text: str) -> str:
 
 
 def serialize_from_json(data: str) -> str:
-    obj = json.loads(data)
+    if not str(data or "").strip():          # L7.87: a bare JSONDecodeError said nothing about what was expected
+        raise ValueError('NK script: paste the node graph as JSON ({"nodes": [...], "links": [...]}).')
+    try:
+        obj = json.loads(data)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"NK script: the node graph is not valid JSON ({exc.msg} at line {exc.lineno}, "
+                         f"column {exc.colno}).") from exc
     return serialize(obj.get("nodes", []), [tuple(x) for x in obj.get("links", [])])

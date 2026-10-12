@@ -35,6 +35,20 @@ try:
 except ImportError:
     _HAVE_OPENEXR = False
 
+# L7.87 (2026-10-12): without the OpenEXR bindings the writer fell back to OpenCV, which only handles EXR when
+# OPENCV_IO_ENABLE_OPENEXR=1 was set before ANY pack imported cv2 - on a real install that is too late, so EXR Sequence
+# Save failed. OpenImageIO (installed with the OCIO stack) reads and writes EXR natively; it is the middle path.
+try:
+    import OpenImageIO as _oiio  # type: ignore[import-not-found]
+    _HAVE_OIIO = True
+except ImportError:
+    _oiio = None
+    _HAVE_OIIO = False
+_OIIO_COMPRESSION = {
+    "ZIP_COMPRESSION": "zip", "ZIPS_COMPRESSION": "zips", "PIZ_COMPRESSION": "piz", "PXR24_COMPRESSION": "pxr24",
+    "RLE_COMPRESSION": "rle", "B44_COMPRESSION": "b44", "DWAA_COMPRESSION": "dwaa", "NO_COMPRESSION": "none",
+}
+
 from ...utils.resilience import resilient
 from ..._tensor_util import require_image_bhwc
 from ..._is_changed_util import hash_args_and_kwargs
@@ -94,6 +108,18 @@ def _save_exr_frame(img_hwc: np.ndarray, path: str, use_half: bool, compression_
         out.writePixels({ch: img_hwc[:, :, i].astype(dt).tobytes() for i, ch in enumerate(names)})
         out.close()
         return
+    if _HAVE_OIIO:
+        spec = _oiio.ImageSpec(W, H, C, "half" if use_half else "float")
+        spec.attribute("compression", _OIIO_COMPRESSION.get(COMPRESSIONS.get(compression_key, "ZIP_COMPRESSION"), "zip"))
+        spec.channelnames = tuple(["R", "G", "B", "A"][:C] if C in (3, 4) else [f"c{i}" for i in range(C)])
+        out = _oiio.ImageOutput.create(path)
+        if out is None or not out.open(path, spec):
+            raise IOError("Could not write " + repr(path) + " via OpenImageIO: " + _oiio.geterror())
+        ok = out.write_image(np.ascontiguousarray(img_hwc, dtype=np.float32))
+        out.close()
+        if not ok:
+            raise IOError("Could not write " + repr(path) + " via OpenImageIO: " + _oiio.geterror())
+        return
     cv2 = _require_cv2()
     if C == 3:
         buf = img_hwc[:, :, ::-1]
@@ -118,6 +144,21 @@ def _load_exr_frame(path: str) -> torch.Tensor:
         ordered = [c for c in ("R", "G", "B", "A") if c in chans] or chans[:4]
         img = np.stack([np.frombuffer(f.channel(c, PT), dtype=np.float32).reshape(H, W)
                         for c in ordered], axis=-1)
+        return torch.from_numpy(img.copy()).unsqueeze(0)
+    if _HAVE_OIIO:
+        inp = _oiio.ImageInput.open(path)
+        if inp is None:
+            raise IOError("OpenImageIO could not open " + repr(path) + ": " + _oiio.geterror())
+        try:
+            spec = inp.spec()
+            img = inp.read_image(0, 0, 0, min(spec.nchannels, 4), "float")
+        finally:
+            inp.close()
+        if img is None:
+            raise IOError("OpenImageIO could not read " + repr(path) + ": " + _oiio.geterror())
+        img = np.asarray(img, dtype=np.float32)
+        if img.ndim == 2:
+            img = img[:, :, None]
         return torch.from_numpy(img.copy()).unsqueeze(0)
     cv2 = _require_cv2()
     img = cv2.imread(path, cv2.IMREAD_UNCHANGED | cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
