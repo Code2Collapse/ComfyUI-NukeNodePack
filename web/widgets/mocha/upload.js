@@ -116,7 +116,8 @@ function _installCanvasDropOnce() {
     const ds = app.canvas.ds;
     const gx = (clientX - r.left - ds.offset[0]) / ds.scale;
     const gy = (clientY - r.top - ds.offset[1]) / ds.scale;
-    for (const n of app.graph._nodes) {
+    // the graph on screen, root or subgraph (L2.47)
+    for (const n of (app.canvas?.graph ?? app.graph)._nodes) {
       if (!ALL_MOCHA_IMPORT_NODES.has(n.comfyClass || n.type)) continue;
       const [nx, ny] = n.pos;
       const [nw, nh] = n.size;

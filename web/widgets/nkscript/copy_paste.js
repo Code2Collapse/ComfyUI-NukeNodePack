@@ -45,9 +45,11 @@ function _gatherSubgraph(nodes) {
     });
     // Walk graph.links, keep only links where both endpoints are selected.
     const out_links = [];
-    const links = app.graph?.links || {};
-    for (const k in links) {
-        const l = links[k];
+    // the selection's own graph (root or subgraph); graph.links is a Map in frontend 1.52+, where for...in sees nothing
+    const g = nodes[0]?.graph ?? app.canvas?.graph ?? app.graph;
+    const L = g?.links;
+    const all = !L ? [] : typeof L.values === "function" ? [...L.values()] : Object.values(L);
+    for (const l of all) {
         if (!l) continue;
         if (ids.has(l.origin_id) && ids.has(l.target_id)) {
             out_links.push([l.origin_id, l.origin_slot, l.target_id, l.target_slot]);
@@ -154,7 +156,7 @@ async function _paste() {
         if (originX === null) { originX = nd.xpos; originY = nd.ypos; }
         node.pos = [baseX + (nd.xpos - originX), baseY + (nd.ypos - originY)];
         if (nd.name) node.title = nd.name;
-        app.graph.add(node);
+        (app.canvas?.graph ?? app.graph).add(node);   // paste where the user is looking (L2.47)
         // Apply widget values.
         for (const [k, v] of Object.entries(nd.knobs || {})) {
             const w = (node.widgets || []).find((x) => x.name === k);

@@ -29,6 +29,44 @@ const ST = "_nmKit";
 import { humaniseError } from "./_nukemax_errors.js";
 export { humaniseError };
 
+// ── nodes inside subgraphs (C2C L2.47) ──────────────────────────────────────
+// `app.graph` is the ROOT graph only. A node inside a subgraph is named by the server with a composite id
+// ("12:5", "12:5:7" when nested) - Number() of that is NaN - and is not in app.graph._nodes.
+
+/** The node a server event names: a plain id, or "outer:inner[:deeper]" through (nested) subgraphs. */
+export function findNodeByExecId(idLike) {
+    const root = app.graph;
+    if (!root || idLike == null || idLike === "") return null;
+    const byId = (g, id) => (g?._nodes || []).find((n) => String(n.id) === String(id)) || null;
+    const parts = String(idLike).split(":");
+    let g = root;
+    let node = null;
+    for (let i = 0; i < parts.length; i++) {
+      node = byId(g, parts[i]);
+      if (!node) return null;
+      if (i < parts.length - 1) {
+        g = node.subgraph;
+        if (!g) return null;
+      }
+    }
+    return node;
+}
+
+/** Every node of the workflow, subgraphs included (each subgraph definition visited once). */
+export function forEachNode(fn) {
+    const seen = new Set();
+    const stack = [app.graph];
+    while (stack.length) {
+      const g = stack.pop();
+      if (!g || seen.has(g)) continue;
+      seen.add(g);
+      for (const n of g._nodes || []) {
+        fn(n, g);
+        if (n.subgraph) stack.push(n.subgraph);
+      }
+    }
+}
+
 // The badge hues used to be twenty-six literals here. They live in
 // _nukemax_theme.js now, as PALETTE keys, so they move with the theme rather
 // than clashing with whichever ground is behind them.
@@ -133,14 +171,14 @@ app.registerExtension({
     api.addEventListener("executing", ({ detail }) => {
       const id = detail;
       if (id == null) return;
-      const node = app.graph?.getNodeById?.(Number(id));
+      const node = findNodeByExecId(id);          // "12:5" inside a subgraph (L2.47)
       const st = node && node[ST];
       if (st) { st.t0 = Date.now(); st.fullError = ""; setStatus(st, "running…", ""); }
     });
 
     // Execution error: this is the whole point of the kit.
     api.addEventListener("execution_error", ({ detail }) => {
-      const node = app.graph?.getNodeById?.(Number(detail?.node_id));
+      const node = findNodeByExecId(detail?.node_id);
       const st = node && node[ST];
       if (!st) return;
       const raw = [detail?.exception_message, ...(detail?.traceback || [])]
@@ -151,10 +189,10 @@ app.registerExtension({
     });
 
     api.addEventListener("execution_interrupted", () => {
-      for (const n of app.graph?._nodes || []) {
+      forEachNode((n) => {
         const st = n[ST];
         if (st && st.t0) setStatus(st, "cancelled", "");
-      }
+      });
     });
   },
 });

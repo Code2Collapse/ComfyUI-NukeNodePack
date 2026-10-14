@@ -166,6 +166,7 @@ The strict typing means a `MASK` produced by, for example, `RotoShapeRender` is 
 - `types_io.py` intentionally exposes empty mappings; types are registered by their owning category modules.
 - All temporal nodes operate batch-first (B = T), no per-frame Python loops in the hot path.
 - The dual-output discipline is enforced: classical VFX socket on the left, AI-consumable socket on the right, on every node where both are meaningful.
+- Works inside subgraphs: each node's run status and plain-English error, NkScript copy / paste and the Mocha file drop all follow nodes that live inside (nested) subgraphs.
 
 ## License
 
