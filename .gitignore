@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Tests stay local (owner rule 2026-10-23: "never git push test folders at all. keep them in local only")
+tests/
+/conftest.py
