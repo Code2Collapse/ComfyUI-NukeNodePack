@@ -301,6 +301,24 @@ class LightProbeToEXR:
         out_path = Path(out_dir) / filename
         out_path.parent.mkdir(parents=True, exist_ok=True)
         env = probe.env_map[0].permute(1, 2, 0).cpu().contiguous().float().numpy()
+        try:                                    # L9.39: OpenImageIO (shipped) first; it wrote .npy without OpenEXR
+            import OpenImageIO as oiio  # type: ignore
+            import numpy as np
+            h, w, _ = env.shape
+            spec = oiio.ImageSpec(w, h, 3, oiio.FLOAT)
+            spec.channelnames = ("R", "G", "B")
+            spec.attribute("compression", "zip")
+            out = oiio.ImageOutput.create(str(out_path))
+            if out is None or not out.open(str(out_path), spec):
+                raise ImportError(oiio.geterror())
+            try:
+                if not out.write_image(np.ascontiguousarray(env[:, :, :3], dtype=np.float32)):
+                    raise ValueError(out.geterror())
+            finally:
+                out.close()
+            return (str(out_path).replace("\\", "/"),)
+        except ImportError:
+            pass
         try:
             import OpenEXR  # type: ignore
             import Imath  # type: ignore

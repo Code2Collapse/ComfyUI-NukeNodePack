@@ -339,7 +339,9 @@ class HDRToneMap:
         return {
             "required": {"image": ("IMAGE", {"tooltip": "Scene-linear HDR input; may exceed 1.0."})},
             "optional": {
-                "preset": (["None (Custom)", *cls.PRESETS.keys()], {"default": "Cinematic Film"}),
+                # L9.39: a preset overrides every setting below, so new nodes start on the settings themselves
+                "preset": (["None (Custom)", *cls.PRESETS.keys()], {"default": "None (Custom)", "tooltip":
+                    "A preset overrides every setting below. None (Custom) uses them."}),
                 "operator": (cls.OPERATORS, {"default": "filmic_aces"}),
                 "exposure": ("FLOAT", {"default": 0.0, "min": -5.0, "max": 5.0, "step": 0.1}),
                 "gamma": ("FLOAT", {"default": 2.2, "min": 1.0, "max": 3.0, "step": 0.1}),

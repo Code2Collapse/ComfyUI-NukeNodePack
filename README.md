@@ -161,6 +161,37 @@ Organised by source file under `nukemax/nodes/`. Counts are exact; class names l
 
 The strict typing means a `MASK` produced by, for example, `RotoShapeRender` is a normal ComfyUI MASK and connects to any node that accepts MASK — only the *bundle* types (`ROTO_SHAPE`, `FFT_DATA`, `MATERIAL_PBR`, …) are pack-internal.
 
+## Fixes 2026-10-24 (comp basics)
+
+From an audit of the pack against Nuke's behaviour (the full list, with file and line for each finding, is in the
+C2C workspace: `docs/evidence/L9.39/`):
+
+- **Merge** follows Nuke's maths. The operation runs on alpha too, so `over` gives a + b(1 - a) where it used to
+  give max(a, b). `minus` is now A - B, with the new `from` for B - A; `divide` is now A / B; `matte` is
+  A·a + B(1 - a). The output takes B's format (A is resized to it), B's alpha is kept, nothing is clamped, and a
+  connected mask no longer crashes. New: `invert_mask`, `conjoint_over`, `disjoint_over`, `geometric`.
+  Workflows saved with `minus` or `divide` now get Nuke's result.
+- **Premult / Unpremult** keep the alpha (`output` = rgba, the default; rgb for the old 3-channel result) and use
+  the image's own alpha when no mask is connected. Not clamped.
+- **Viewer** is an output node: it runs with nothing after it. `rgba` keeps alpha, luminance uses Rec.709 weights,
+  M (`matte`) shows alpha as a red overlay. The IMAGE output is not clamped; only the preview is.
+- **Color Space Convert (C2C):** sRGB -> ACEScg now uses the AP1 matrix (it was sRGB -> AP0), and alpha passes through.
+- **Log2Lin** is Kodak Cineon (black / white / film gamma): code 1023 is about 13.5 linear, and it is not clamped.
+- **LUTs:** `.3dl` (blue fastest) and `.spi3d` (indexed) tables are now read in the right order, so red and blue
+  are no longer swapped. LUT Apply (C2C) keeps alpha.
+- **ProRes / MP4 Write:** "MP4 (H.264)" writes real H.264 (it wrote MPEG-4 Part 2). 23.976 / 29.97 are exact
+  rates. ProRes and H.264 are converted with the BT.709 matrix and tagged with it.
+- **EXR:** channels are read by name (an R, G, B, Z render no longer gives Z as alpha). EXR Channel Router and Light
+  Probe to EXR work through OpenImageIO.
+- **HDR Tone Map:** new nodes start on their own settings (a preset overrides every setting). **STMap Identity /
+  Invert** use pixel centres, like STMap Apply, so Identity -> Apply reproduces the image.
+
+## Tests
+
+The test suite stays on the developer's machine and is not in this repository (owner rule 2026-10-23). CI boots
+ComfyUI with this pack and fails on an import failure, no registered node, or a traceback from the pack
+(`.github/c2c_boot_check.py`).
+
 ## Notes
 
 - `types_io.py` intentionally exposes empty mappings; types are registered by their owning category modules.

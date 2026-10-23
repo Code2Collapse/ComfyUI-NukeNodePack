@@ -51,6 +51,7 @@ const CHANNELS = [
   { key: "blue", label: "B", hint: "blue only" },
   { key: "alpha", label: "A", hint: "alpha only" },
   { key: "luminance", label: "L", hint: "luminance" },
+  { key: "matte", label: "M", hint: "alpha as a red overlay on the picture" },
 ];
 
 function chainOnRemoved(node, cleanup) {
@@ -82,8 +83,13 @@ function shade(src, dst, channel, gain, gamma) {
       case "blue":  o0 = o1 = o2 = b; break;
       case "alpha": o0 = o1 = o2 = a; break;
       case "luminance": {
-        const l = 0.299 * r + 0.587 * g + 0.114 * b;
+        const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;      // Rec.709, as the node computes it
         o0 = o1 = o2 = l;
+        break;
+      }
+      case "matte": {                                          // Nuke's M: where alpha is 0, half red
+        const k = (1 - a / 255) * 0.5;
+        o0 = r * (1 - k) + 255 * k; o1 = g * (1 - k); o2 = b * (1 - k);
         break;
       }
       default: o0 = r; o1 = g; o2 = b;
@@ -330,7 +336,7 @@ function attach(node) {
     const tag = document.activeElement?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA") return;
     const k = e.key.toLowerCase();
-    const map = { r: "red", g: "green", b: "blue", a: "alpha", l: "luminance" };
+    const map = { r: "red", g: "green", b: "blue", a: "alpha", l: "luminance", m: "matte" };
     if (map[k]) {
       st.channel = st.channel === map[k] ? "rgb" : map[k];
       const pillBtn = pills.querySelector(`[data-value="${st.channel}"]`);

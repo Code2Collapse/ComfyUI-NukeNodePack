@@ -23,13 +23,19 @@ from ..._is_changed_util import hash_args_and_kwargs
 
 _CHANNEL_LABELS = (
     "rgba", "rgb", "red", "green", "blue", "alpha", "luminance",
+    "matte",            # L9.39: alpha as a red overlay on the picture (Nuke's M)
 )
+_LUMA709 = (0.2126, 0.7152, 0.0722)
 
 
 @resilient
 class NukeMax_Viewer:
-    DESCRIPTION = "Preview an IMAGE with Nuke-style channel isolation, gamma, gain, and optional mask overlay."
+    DESCRIPTION = ("Preview an IMAGE with Nuke-style channel isolation (R G B A L, M = matte overlay), gain, gamma and "
+                   "an optional mask overlay. An output node: it runs and shows the frame with nothing after it. The "
+                   "IMAGE output carries the viewed result in linear float (alpha kept for rgba); only the preview "
+                   "is clipped for display.")
     CATEGORY = "NukeMax/Viewer"
+    OUTPUT_NODE = True
     FUNCTION = "execute"
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)
@@ -77,7 +83,9 @@ class NukeMax_Viewer:
         img = image
 
         safe_gamma = max(float(gamma), 0.1)
-        img_processed = torch.pow(torch.clamp(img * gain, 0, 1), 1.0 / safe_gamma)
+        x = img * float(gain)
+        # HDR-safe gamma: x^(1/g) above zero, values at or below zero pass through (no clamp - linear float)
+        img_processed = torch.where(x > 0, x.clamp(min=0) ** (1.0 / safe_gamma), x) if safe_gamma != 1.0 else x
 
         if img_processed.shape[3] >= 4:
             r = img_processed[..., 0:1]
@@ -117,8 +125,11 @@ class NukeMax_Viewer:
         elif channel == "alpha":
             result = torch.cat([a, a, a], dim=-1)
         elif channel == "luminance":
-            lum = 0.299 * r + 0.587 * g + 0.114 * b
+            lum = _LUMA709[0] * r + _LUMA709[1] * g + _LUMA709[2] * b
             result = torch.cat([lum, lum, lum], dim=-1)
+        elif channel == "matte":
+            k = (1.0 - a.clamp(0, 1)) * 0.5        # where alpha is 0, half red
+            result = torch.cat([r * (1 - k) + k, g * (1 - k), b * (1 - k)], dim=-1)
         else:
             result = img_processed
 
@@ -142,7 +153,7 @@ class NukeMax_Viewer:
             overlay_color = torch.tensor(
                 [1.0, 0.0, 0.0], device=result.device, dtype=result.dtype
             ).view(1, 1, 1, 3)
-            result = result + m * overlay_color * 0.3
+            result = torch.cat([result[..., :3] + m * overlay_color * 0.3, result[..., 3:]], dim=-1)
 
         channel_line = (
             f"channel={channel}  gamma={gamma:.2f}  gain={gain:.2f}  "
@@ -152,7 +163,7 @@ class NukeMax_Viewer:
         if overlay_text.strip():
             ui_text = f"{channel_line}\n{overlay_text.strip()}"
 
-        result = result[..., :3].clamp(0, 1).contiguous()
+        result = result.contiguous()
         return {
             "ui": {"text": [ui_text], "images": _write_previews(result)},
             "result": (result,),
@@ -183,8 +194,9 @@ def _write_previews(result: torch.Tensor) -> list:
         frames = result[:MAX_PREVIEW_FRAMES]
         entries = []
         for i in range(frames.shape[0]):
-            arr = (frames[i].detach().cpu().numpy() * 255.0).clip(0, 255)
-            img = Image.fromarray(arr.astype(np.uint8), mode="RGB")
+            arr = (frames[i].detach().float().cpu().numpy() * 255.0).clip(0, 255)    # display: clipped here only
+            rgba = arr.shape[-1] >= 4
+            img = Image.fromarray(arr[..., :4 if rgba else 3].astype(np.uint8), mode="RGBA" if rgba else "RGB")
             name = f"{prefix}_{i:03d}.png"
             img.save(os.path.join(out_dir, name), compress_level=4)
             entries.append({"filename": name, "subfolder": "", "type": "temp"})

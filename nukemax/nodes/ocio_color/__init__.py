@@ -195,6 +195,8 @@ def _cube_from_native(native: dict, path: str) -> _cube.Cube:
         dim = 1
     else:
         table = arr.reshape(size, size, size, 3)
+        if native.get("order") == "blue_fastest":        # .3dl: [r][g][b] in file order -> the cube's [b][g][r]
+            table = table.transpose(2, 1, 0, 3)
         dim = 3
     dom_min = tuple(native.get("domain_min", [0.0, 0.0, 0.0])[:3])
     dom_max = tuple(native.get("domain_max", [1.0, 1.0, 1.0])[:3])

@@ -135,8 +135,10 @@ class STMapIdentity:
         }
 
     def execute(self, width: int, height: int, batch: int):
-        ys = torch.linspace(0.0, 1.0, height, dtype=torch.float32)
-        xs = torch.linspace(0.0, 1.0, width, dtype=torch.float32)
+        # pixel centres, (x + 0.5) / W - the convention STMapApply samples with (align_corners=False), so
+        # Identity -> Apply returns the image exactly (it was x / (W - 1): up to half a pixel off, L9.39)
+        ys = (torch.arange(height, dtype=torch.float32) + 0.5) / height
+        xs = (torch.arange(width, dtype=torch.float32) + 0.5) / width
         vv, uu = torch.meshgrid(ys, xs, indexing="ij")
         stmap = torch.stack([uu, vv, torch.zeros_like(uu)], dim=-1)  # (H,W,3)
         stmap = stmap.unsqueeze(0).expand(batch, -1, -1, -1).contiguous()
@@ -197,8 +199,8 @@ class STMapInvert:
         out = torch.zeros((B, H, W, 3), dtype=torch.float32, device=device)
         for b in range(B):
             # Source pixel that the STMap reads FROM for each output pixel.
-            src_u = stmap[b, ..., 0] * (W - 1)  # (H,W) float
-            src_v = stmap[b, ..., 1] * (H - 1)
+            src_u = stmap[b, ..., 0] * W - 0.5  # (H,W) float, pixel-centre convention as STMapApply
+            src_v = stmap[b, ..., 1] * H - 0.5
             # Round to nearest integer source pixel, clamp to bounds.
             su = src_u.round().long().clamp_(0, W - 1)
             sv = src_v.round().long().clamp_(0, H - 1)
@@ -207,8 +209,8 @@ class STMapInvert:
             # That is: at position (sv,su) in the inverse map, write (uu/W, vv/H).
             acc = torch.zeros((H, W, 2), dtype=torch.float32, device=device)
             count = torch.zeros((H, W), dtype=torch.float32, device=device)
-            u_norm = uu / max(W - 1, 1)
-            v_norm = vv / max(H - 1, 1)
+            u_norm = (uu + 0.5) / W
+            v_norm = (vv + 0.5) / H
             flat_idx = sv * W + su  # (H,W)
             acc_flat = acc.view(H * W, 2)
             count_flat = count.view(H * W)
@@ -221,7 +223,6 @@ class STMapInvert:
 
             # Hole fill via box-blur-of-known-pixels.
             if fill_iterations > 0:
-                kn = torch.tensor([[1.0]], device=device).view(1, 1, 1, 1) * 0  # placeholder
                 # Simple 3x3 averaging using filled neighbors.
                 m = mask  # (H,W,1)
                 uv = inv_uv  # (H,W,2)

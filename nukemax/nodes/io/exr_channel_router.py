@@ -42,13 +42,16 @@ def _read_exr_channels(path: str, want: Sequence[str]) -> Tuple[Dict[str, np.nda
     Returns ({name: (H,W) float32}, info_dict). Missing channels are
     omitted from the result; caller decides how to react.
     """
+    try:                                   # L9.39: OpenImageIO first - it is the EXR reader this pack ships with
+        return _read_exr_channels_oiio(path, want)
+    except ImportError:
+        pass
     try:
         import OpenEXR  # type: ignore[import-not-found]
         import Imath  # type: ignore[import-not-found]
     except ImportError as exc:
         raise ImportError(
-            "EXR Channel Router requires OpenEXR+Imath. "
-            "Install: `pip install OpenEXR Imath` (or use ComfyUI Manager)."
+            "EXR Channel Router needs OpenImageIO (pip install OpenImageIO) or OpenEXR + Imath."
         ) from exc
 
     f = OpenEXR.InputFile(path)
@@ -72,6 +75,27 @@ def _read_exr_channels(path: str, want: Sequence[str]) -> Tuple[Dict[str, np.nda
         }
     finally:
         f.close()
+    return out, info
+
+
+def _read_exr_channels_oiio(path: str, want: Sequence[str]) -> Tuple[Dict[str, np.ndarray], dict]:
+    """The same contract through OpenImageIO: every channel of subimage 0 read as float, picked by name."""
+    import OpenImageIO as oiio  # type: ignore[import-not-found]
+    inp = oiio.ImageInput.open(path)
+    if inp is None:
+        raise ValueError(f"EXR Channel Router: cannot open {path!r}: {oiio.geterror()}")
+    try:
+        spec = inp.spec()
+        names = list(spec.channelnames)
+        data = inp.read_image(0, 0, 0, spec.nchannels, "float")
+        if data is None:
+            raise ValueError(f"EXR Channel Router: cannot read {path!r}: {inp.geterror()}")
+        data = np.asarray(data, dtype=np.float32).reshape(spec.height, spec.width, spec.nchannels)
+        out = {c: np.ascontiguousarray(data[..., names.index(c)]) for c in want if c in names}
+        info = {"width": spec.width, "height": spec.height, "all_channels": names,
+                "compression": str(spec.get_string_attribute("compression") or "?")}
+    finally:
+        inp.close()
     return out, info
 
 

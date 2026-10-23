@@ -27,6 +27,8 @@ def parse_3dl_lut(filepath: Path) -> dict[str, Any]:
         "type": "3D",
         "input_range": None,
         "output_bit_depth": 12,
+        # L9.39: .3dl lists blue fastest (red slowest); .cube lists red fastest. Consumers reorder by this.
+        "order": "blue_fastest",
     }
 
     with open(filepath, "r", encoding="utf-8", errors="replace") as f:
@@ -226,13 +228,21 @@ def parse_spi3d_lut(filepath: Path) -> dict[str, Any]:
 
         if len(parts) >= 6:
             try:
+                idx = (int(parts[0]), int(parts[1]), int(parts[2]))
                 rgb = [float(parts[3]), float(parts[4]), float(parts[5])]
-                data_lines.append(rgb)
+                data_lines.append((idx, rgb))
             except ValueError:
                 continue
 
     if data_lines:
-        lut_data["data"] = np.array(data_lines, dtype=np.float32)
+        # each line names its own (r, g, b) lattice index: place it there and hand on red-fastest data, as .cube
+        n = lut_data["size"] or int(round(len(data_lines) ** (1 / 3)))
+        lut_data["size"] = n
+        table = np.zeros((n, n, n, 3), dtype=np.float32)
+        for (ri, gi, bi), rgb in data_lines:
+            table[bi, gi, ri] = rgb
+        lut_data["data"] = table.reshape(-1, 3)
+        lut_data["order"] = "red_fastest"
 
     return lut_data
 

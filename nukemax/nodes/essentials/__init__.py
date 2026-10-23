@@ -256,18 +256,69 @@ class Exposure:
 
 
 # ───────────────────────── Merge ─────────────────────────
+# saved workflows store the operation name: new ones are appended
 _MERGE_OPS = ("over", "under", "atop", "in", "out", "mask", "stencil",
               "plus", "minus", "multiply", "screen", "overlay", "difference",
               "max", "min", "average",
               "soft_light", "hard_light", "color_dodge", "color_burn",
-              "darken", "lighten", "exclusion", "divide", "hypot", "xor", "matte", "copy")
+              "darken", "lighten", "exclusion", "divide", "hypot", "xor", "matte", "copy",
+              "from", "conjoint_over", "disjoint_over", "geometric")
+
+
+def _merge_op(op, A, B, a, b):
+    """Nuke's Merge formula for one set of channels. A, B premultiplied values; a, b their alphas (broadcast). The
+    same formula runs on the alpha channel itself (A = a, B = b), as Nuke's Merge does with output = rgba."""
+    if op == "over":       return A + B * (1 - a)
+    if op == "under":      return A * (1 - b) + B
+    if op == "atop":       return A * b + B * (1 - a)
+    if op == "in":         return A * b
+    if op == "out":        return A * (1 - b)
+    if op == "mask":       return B * a
+    if op == "stencil":    return B * (1 - a)
+    if op == "plus":       return A + B
+    if op == "minus":      return A - B                       # Nuke: A - B ("from" is B - A)
+    if op == "from":       return B - A
+    if op == "multiply":   return torch.where((A < 0) & (B < 0), A, A * B)
+    if op == "screen":     return torch.where((A <= 1) & (B <= 1), A + B - A * B, torch.maximum(A, B))
+    if op == "overlay":    return torch.where(B < 0.5, 2 * A * B, 1 - 2 * (1 - A) * (1 - B))
+    if op == "hard_light": return torch.where(A < 0.5, 2 * A * B, 1 - 2 * (1 - A) * (1 - B))
+    if op == "soft_light":
+        return torch.where(B < 0.5, 2 * A * B + B ** 2 * (1 - 2 * A),
+                           2 * B * (1 - A) + torch.sqrt(B.clamp(min=0)) * (2 * A - 1))
+    if op == "difference": return (A - B).abs()
+    if op in ("max", "lighten"): return torch.maximum(A, B)
+    if op in ("min", "darken"):  return torch.minimum(A, B)
+    if op == "average":    return (A + B) * 0.5
+    if op == "color_dodge":
+        return torch.where(A >= 1.0, torch.maximum(A, B), B / (1 - A).clamp(min=1e-7))
+    if op == "color_burn":
+        return torch.where(A <= 0.0, torch.minimum(A, B), 1 - (1 - B) / A.clamp(min=1e-7))
+    if op == "exclusion":  return A + B - 2 * A * B
+    if op == "divide":                                       # Nuke: A / B, 0 where both are negative
+        q = A / torch.where(B.abs() < 1e-12, torch.full_like(B, 1e-12), B)
+        return torch.where((A < 0) & (B < 0), torch.zeros_like(A), q)
+    if op == "hypot":      return torch.sqrt(A * A + B * B)
+    if op == "xor":        return A * (1 - b) + B * (1 - a)
+    if op == "matte":      return A * a + B * (1 - a)       # A unpremultiplied over B
+    if op == "copy":       return A
+    if op == "geometric":
+        den = A + B
+        return torch.where(den.abs() < 1e-12, torch.zeros_like(A), 2 * A * B / torch.where(
+            den.abs() < 1e-12, torch.ones_like(den), den))
+    if op == "conjoint_over":                                # A + B(1-a)/b where a < b, else A
+        return torch.where(a >= b, A, A + B * (1 - a / b.clamp(min=1e-12)))
+    if op == "disjoint_over":                                # A + B(1-a)/b where a + b > 1, else A + B
+        return torch.where(a + b <= 1, A + B, A + B * (1 - a) / b.clamp(min=1e-12))
+    raise ValueError(f"Unknown merge operation {op!r}; pick one of {', '.join(_MERGE_OPS)}.")
 
 
 @resilient
 class Merge:
-    DESCRIPTION = ("Nuke Merge: composite A over/under B with the full operation set "
-                   "(over/under/atop/in/out/mask/stencil/plus/minus/multiply/screen/overlay/"
-                   "difference/max/min/average). 'mix' dissolves the result back toward B.")
+    DESCRIPTION = ("Nuke Merge: A merged with B by the chosen operation (over, under, atop, in, out, mask, stencil, "
+                   "plus, minus, from, multiply, screen, overlay, difference, max, min, average, divide, conjoint / "
+                   "disjoint over, ...). As in Nuke the operation runs on alpha too, the output takes B's format "
+                   "(A is resized to it), and nothing is clamped. 'mix' (times the optional mask) dissolves the "
+                   "result back toward B.")
     CATEGORY = "NukeMax/Merge"
     FUNCTION = "execute"
     RETURN_TYPES = ("IMAGE",)
@@ -286,66 +337,32 @@ class Merge:
             "mix": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01,
                     "tooltip": "Blend the merge result back toward B (1 = full merge)."}),
         }, "optional": {
-            "mask": ("MASK", {"tooltip": "Optional matte modulating the mix factor."}),
+            "mask": ("MASK", {"tooltip": "Optional matte: the mix is applied only where it is white."}),
+            # L9.39 - appended
+            "invert_mask": ("BOOLEAN", {"default": False, "tooltip": "Use the inverse of the mask."}),
         }}
 
-    def execute(self, A, B, operation, mix, mask=None):
+    def execute(self, A, B, operation, mix, mask=None, invert_mask=False):
         require_image_bhwc(A); require_image_bhwc(B)
-        # match B size to A
-        if B.shape[1:3] != A.shape[1:3]:
-            B = F.interpolate(B[..., :A.shape[-1]].permute(0, 3, 1, 2), size=A.shape[1:3],
-                              mode="bilinear", align_corners=False).permute(0, 2, 3, 1)
+        if A.shape[0] != B.shape[0] and 1 not in (A.shape[0], B.shape[0]):
+            raise ValueError(f"A has {A.shape[0]} frames and B has {B.shape[0]}; give them the same count "
+                             "(or a single frame on one side).")
+        A = _match_hw(A, B).to(B.dtype)                       # B's format, as in Nuke
         a_rgb, a_a = _split(A)
         b_rgb, b_a = _split(B)
         aa = a_a if a_a is not None else torch.ones_like(a_rgb[..., :1])
         ba = b_a if b_a is not None else torch.ones_like(b_rgb[..., :1])
-        op = operation
-        if op == "over":      out = a_rgb + b_rgb * (1 - aa)
-        elif op == "under":   out = a_rgb * (1 - ba) + b_rgb
-        elif op == "atop":    out = a_rgb * ba + b_rgb * (1 - aa)
-        elif op == "in":      out = a_rgb * ba
-        elif op == "out":     out = a_rgb * (1 - ba)
-        elif op == "mask":    out = b_rgb * aa
-        elif op == "stencil": out = b_rgb * (1 - aa)
-        elif op == "plus":    out = a_rgb + b_rgb
-        elif op == "minus":   out = b_rgb - a_rgb
-        elif op == "multiply": out = a_rgb * b_rgb
-        elif op == "screen":  out = a_rgb + b_rgb - a_rgb * b_rgb
-        elif op == "overlay":
-            out = torch.where(b_rgb < 0.5, 2 * a_rgb * b_rgb, 1 - 2 * (1 - a_rgb) * (1 - b_rgb))
-        elif op == "difference": out = (a_rgb - b_rgb).abs()
-        elif op == "max":     out = torch.maximum(a_rgb, b_rgb)
-        elif op == "min":     out = torch.minimum(a_rgb, b_rgb)
-        elif op == "soft_light":
-            out = torch.where(b_rgb < 0.5, 2 * a_rgb * b_rgb + b_rgb ** 2 * (1 - 2 * a_rgb),
-                              2 * b_rgb * (1 - a_rgb) + torch.sqrt(b_rgb) * (2 * a_rgb - 1))
-        elif op == "hard_light":
-            out = torch.where(a_rgb < 0.5, 2 * a_rgb * b_rgb, 1 - 2 * (1 - a_rgb) * (1 - b_rgb))
-        elif op == "color_dodge":
-            out = torch.where(a_rgb >= 1.0, torch.ones_like(a_rgb), b_rgb / (1 - a_rgb + 1e-7))
-        elif op == "color_burn":
-            out = torch.where(a_rgb <= 0.0, torch.zeros_like(a_rgb), 1 - (1 - b_rgb) / (a_rgb + 1e-7))
-        elif op == "darken":  out = torch.minimum(a_rgb, b_rgb)
-        elif op == "lighten": out = torch.maximum(a_rgb, b_rgb)
-        elif op == "exclusion": out = a_rgb + b_rgb - 2 * a_rgb * b_rgb
-        elif op == "divide":  out = b_rgb / (a_rgb + 1e-7)
-        elif op == "hypot":   out = torch.sqrt(a_rgb ** 2 + b_rgb ** 2).clamp(0, 1)
-        elif op == "xor":
-            out = a_rgb * (1 - ba) + b_rgb * (1 - aa)
-        elif op == "matte":   out = a_rgb * aa
-        elif op == "copy":    out = a_rgb
-        else:                 out = (a_rgb + b_rgb) * 0.5  # average
-        m = float(mix)
+        out = _merge_op(operation, a_rgb, b_rgb, aa, ba)
+        has_alpha = a_a is not None or b_a is not None
+        out_a = _merge_op(operation, aa, ba, aa, ba) if has_alpha else None
+        m = torch.full_like(b_rgb[..., :1], float(mix))
         if mask is not None:
-            mm = mask.unsqueeze(-1) if mask.dim() == 3 else mask
-            if mm.shape[1:3] != A.shape[1:3]:
-                mm = F.interpolate(mm.permute(0, 3, 1, 2), size=A.shape[1:3],
-                                   mode="bilinear", align_corners=False).permute(0, 2, 3, 1)
-            m = m * mm[..., :1]
-        if m < 1.0:
+            mm = _mask_1c(mask, b_rgb)
+            m = m * ((1.0 - mm) if invert_mask else mm)
+        if mask is not None or float(mix) < 1.0:
             out = b_rgb * (1 - m) + out * m
-        out = out.clamp(0, 1)
-        out_a = torch.maximum(aa, ba).clamp(0, 1) if (a_a is not None or b_a is not None) else None
+            if out_a is not None:
+                out_a = ba * (1 - m) + out_a * m
         return (_join(out, out_a),)
 
 

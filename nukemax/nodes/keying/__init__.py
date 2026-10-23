@@ -112,22 +112,18 @@ class Premult:
         return {
             "required": {
                 "image": ("IMAGE", {}),
-                "alpha": ("MASK", {"tooltip": "Matte to premultiply with (1 keeps, 0 zeroes)."}),
+            },
+            "optional": {
+                "alpha": ("MASK", {"tooltip": "Matte to premultiply with (1 keeps, 0 zeroes). Not connected: the "
+                                              "image's own alpha, as Nuke's Premult does."}),
+                "output": (["rgba", "rgb"], {"default": "rgba", "tooltip":
+                    "rgba keeps the alpha with the premultiplied colour (what Merge over needs); rgb drops it."}),
             },
         }
 
-    def execute(self, image, alpha):
-        require_image_bhwc(image)
-        image, R, _G, _B, _A = _rgb_a(image)
-        a = alpha
-        if a.dim() == 2:
-            a = a.unsqueeze(0)
-        # broadcast mask [B,H,W] -> [B,H,W,1] and match batch
-        a = a.unsqueeze(-1)
-        if a.shape[0] != image.shape[0] and a.shape[0] == 1:
-            a = a.expand(image.shape[0], -1, -1, -1)
-        rgb = (image[..., :3] * a).clamp(0.0, 1.0).contiguous()
-        return (rgb,)
+    def execute(self, image, alpha=None, output="rgba"):
+        rgb, a = _rgb_and_alpha(image, alpha, "Premult")
+        return (_out(rgb * a, a, output),)
 
 
 @resilient
@@ -148,23 +144,43 @@ class Unpremult:
         return {
             "required": {
                 "image": ("IMAGE", {}),
-                "alpha": ("MASK", {"tooltip": "Matte to divide by; zero-alpha pixels are left unchanged."}),
+            },
+            "optional": {
+                "alpha": ("MASK", {"tooltip": "Matte to divide by; zero-alpha pixels are left unchanged. Not "
+                                              "connected: the image's own alpha."}),
+                "output": (["rgba", "rgb"], {"default": "rgba", "tooltip": "rgba keeps the alpha; rgb drops it."}),
             },
         }
 
-    def execute(self, image, alpha):
-        require_image_bhwc(image)
-        image, R, _G, _B, _A = _rgb_a(image)
-        a = alpha
-        if a.dim() == 2:
-            a = a.unsqueeze(0)
-        a = a.unsqueeze(-1)
-        if a.shape[0] != image.shape[0] and a.shape[0] == 1:
-            a = a.expand(image.shape[0], -1, -1, -1)
+    def execute(self, image, alpha=None, output="rgba"):
+        rgb, a = _rgb_and_alpha(image, alpha, "Unpremult")
         safe = a.clamp(min=1e-5)
-        rgb = torch.where(a > 1e-5, image[..., :3] / safe, image[..., :3])
-        rgb = rgb.clamp(0.0, 1.0).contiguous()
-        return (rgb,)
+        return (_out(torch.where(a > 1e-5, rgb / safe, rgb), a, output),)
+
+
+def _rgb_and_alpha(image, alpha, who):
+    """(rgb [B,H,W,3], alpha [B,H,W,1]): the MASK when connected (resized / broadcast to the image), else the
+    image's own alpha. No clamp: linear float (PROCESS_PLATE section 3)."""
+    require_image_bhwc(image)
+    rgb = image[..., :3]
+    if alpha is None:
+        if image.shape[-1] < 4:
+            raise ValueError(f"{who}: connect an alpha MASK - this image has no alpha channel.")
+        return rgb, image[..., 3:4]
+    a = alpha.unsqueeze(0) if alpha.dim() == 2 else alpha
+    a = (a.unsqueeze(-1) if a.dim() == 3 else a[..., :1]).to(device=rgb.device, dtype=rgb.dtype)
+    if a.shape[1:3] != rgb.shape[1:3]:
+        a = torch.nn.functional.interpolate(a.permute(0, 3, 1, 2), size=tuple(rgb.shape[1:3]), mode="bilinear",
+                                            align_corners=False).permute(0, 2, 3, 1)
+    if a.shape[0] != rgb.shape[0]:
+        if a.shape[0] != 1:
+            raise ValueError(f"{who}: the mask has {a.shape[0]} frames and the image {rgb.shape[0]}.")
+        a = a.expand(rgb.shape[0], -1, -1, -1)
+    return rgb, a
+
+
+def _out(rgb, a, output):
+    return (torch.cat([rgb, a], -1) if output == "rgba" else rgb).contiguous()
 
 
 NODE_CLASS_MAPPINGS = {

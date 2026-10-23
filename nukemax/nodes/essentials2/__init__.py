@@ -144,7 +144,9 @@ class HueShift:
 
 @resilient
 class Log2Lin:
-    DESCRIPTION = "Convert between log and linear (Cineon-style) colour space."
+    DESCRIPTION = ("Nuke Log2Lin: Kodak Cineon log <-> linear with black / white code values and film gamma "
+                   "(0.002 density per code value). Defaults 95 / 685 / 0.6 are Cineon; code 1023 is about 13.5 "
+                   "linear. Not clamped.")
     CATEGORY = "NukeMax/Color"; FUNCTION = "execute"
     RETURN_TYPES = ("IMAGE",); RETURN_NAMES = ("image",)
     @classmethod
@@ -159,14 +161,16 @@ class Log2Lin:
     def execute(self, image, operation, black, white, gamma):
         require_image_bhwc(image)
         rgb, a = _split(image)
-        bk, wt, g = float(black) / 1023.0, float(white) / 1023.0, float(gamma)
+        bk, wt, g = float(black), float(white), max(1e-6, float(gamma))
+        k = 0.002 / g                                     # decades of linear per code value
+        off = 10.0 ** ((bk - wt) * k)                     # the black code's linear value before normalising
+        x = rgb.double()
         if operation == "log2lin":
-            # map the log black/white points to 0..1, then apply the lin gamma
-            out = (((rgb - bk) / max(1e-6, wt - bk)).clamp(min=0.0)) ** (1.0 / g)
+            out = (torch.pow(10.0, (1023.0 * x - wt) * k) - off) / (1.0 - off)
         else:
-            # inverse: lin gamma back to the log black/white range
-            out = (rgb.clamp(min=1e-6) ** g) * (wt - bk) + bk
-        return (_join(out.clamp(0, 1), a),)
+            # the log argument is floored where log10 is undefined, never the input (below-black survives)
+            out = (wt + torch.log10((x * (1.0 - off) + off).clamp(min=1e-10)) / k) / 1023.0
+        return (_join(out.to(rgb.dtype), a),)
 
 
 @resilient

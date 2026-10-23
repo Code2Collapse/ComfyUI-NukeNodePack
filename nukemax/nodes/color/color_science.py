@@ -63,15 +63,16 @@ def _linear_to_rec709(t: torch.Tensor) -> torch.Tensor:
     )
 
 
-# ACEScg ↔ sRGB matrices (linear). Source: ACES TB-2014-004.
-_M_SRGB_TO_ACESCG = torch.tensor([
-    [0.4397010, 0.3829780, 0.1773350],
-    [0.0897923, 0.8134230, 0.0967926],
-    [0.0175440, 0.1115440, 0.8707040],
-])
-# Numerical inverse of the forward matrix (so round-trip is bit-exact in
-# float32). Recomputed at module load to avoid drift between published
-# tables.
+# Linear sRGB (Rec.709 primaries, D65) <-> ACEScg (AP1, ACES white) with Bradford adaptation, from the pack's own
+# primaries table (ocio_color/_primaries.py). The table that stood here was sRGB -> ACES2065-1 (AP0) under the
+# ACEScg name (first row 0.4397 instead of 0.6131) - L9.39.
+def _srgb_acescg_matrix() -> torch.Tensor:
+    from ..ocio_color._primaries import gamut_matrix
+    return torch.tensor(gamut_matrix("sRGB / Rec.709", "ACEScg (AP1)"), dtype=torch.float32)
+
+
+_M_SRGB_TO_ACESCG = _srgb_acescg_matrix()
+# Numerical inverse of the forward matrix (so round-trip is bit-exact in float32).
 _M_ACESCG_TO_SRGB = torch.linalg.inv(_M_SRGB_TO_ACESCG)
 
 
@@ -153,7 +154,10 @@ class ColorSpaceConvertMEC:
 
     def convert(self, image: torch.Tensor, src_space: str, dst_space: str):
         require_image_bhwc(image)
-        return (_convert(image, src_space, dst_space),)
+        rgb = _convert(image[..., :3], src_space, dst_space)
+        if image.shape[-1] > 3:                       # alpha (and any extra channel) passes through untouched
+            rgb = torch.cat([rgb, image[..., 3:]], dim=-1)
+        return (rgb.contiguous(),)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -301,7 +305,7 @@ class LUTApplyMEC:
 
     RETURN_TYPES = ("IMAGE", "STRING")
     RETURN_NAMES = ("image", "info_json")
-    OUTPUT_TOOLTIPS = ("LUT-graded image clamped to [0,1].", "JSON metadata describing LUT dim, size, and strength.")
+    OUTPUT_TOOLTIPS = ("LUT-graded image (alpha kept).", "JSON metadata describing LUT dim, size, and strength.")
     FUNCTION = "apply"
     CATEGORY = "C2C/Color"
     DESCRIPTION = "Apply a .cube LUT (Adobe format, 1D or 3D) with optional strength blend."
@@ -309,13 +313,13 @@ class LUTApplyMEC:
     def apply(self, image: torch.Tensor, lut_path: str, strength: float = 1.0):
         require_image_bhwc(image)
         lut = parse_cube_lut(lut_path)
-        if lut["dim"] == 3:
-            graded = _apply_lut_3d(image, lut)
-        else:
-            graded = _apply_lut_1d(image, lut)
-        out = image * (1.0 - strength) + graded * strength
+        rgb = image[..., :3]
+        graded = _apply_lut_3d(rgb, lut) if lut["dim"] == 3 else _apply_lut_1d(rgb, lut)
+        out = rgb * (1.0 - strength) + graded * strength          # the LUT bounds its own domain; no extra clamp
+        if image.shape[-1] > 3:                                   # alpha passes through
+            out = torch.cat([out, image[..., 3:]], dim=-1)
         info = {"dim": lut["dim"], "size": lut["size"], "strength": strength}
-        return (out.clamp(0.0, 1.0), json.dumps(info))
+        return (out.contiguous(), json.dumps(info))
 
 
 # ──────────────────────────────────────────────────────────────────────

@@ -151,15 +151,16 @@ def _load_exr_frame(path: str) -> torch.Tensor:
             raise IOError("OpenImageIO could not open " + repr(path) + ": " + _oiio.geterror())
         try:
             spec = inp.spec()
-            img = inp.read_image(0, 0, 0, min(spec.nchannels, 4), "float")
+            img = inp.read_image(0, 0, 0, spec.nchannels, "float")
+            names = list(spec.channelnames)
         finally:
             inp.close()
         if img is None:
             raise IOError("OpenImageIO could not read " + repr(path) + ": " + _oiio.geterror())
-        img = np.asarray(img, dtype=np.float32)
-        if img.ndim == 2:
-            img = img[:, :, None]
-        return torch.from_numpy(img.copy()).unsqueeze(0)
+        img = np.asarray(img, dtype=np.float32).reshape(spec.height, spec.width, spec.nchannels)
+        # by NAME, as the OpenEXR path does: an R,G,B,Z render returned Z as alpha when read by position (L9.39)
+        idx = [names.index(c) for c in ("R", "G", "B", "A") if c in names] or list(range(min(4, len(names))))
+        return torch.from_numpy(np.ascontiguousarray(img[..., idx])).unsqueeze(0)
     cv2 = _require_cv2()
     img = cv2.imread(path, cv2.IMREAD_UNCHANGED | cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
     if img is None:
@@ -402,6 +403,25 @@ class EXRSequenceSave:
         return {"ui": {"text": [last]}, "result": (image, last)}
 
 
+def _exact_rate(fps: float):
+    """fps as a Fraction, NTSC rates exact: 23.976 -> 24000/1001, 29.97 -> 30000/1001, 59.94 -> 60000/1001."""
+    from fractions import Fraction
+    fps = float(fps)
+    base = round(fps * 1.001)
+    if base and abs(fps * 1.001 / base - 1) < 5e-4:
+        return Fraction(base * 1000, 1001)
+    return Fraction(fps).limit_denominator(1_000_000)
+
+
+def _tag_bt709(stream) -> None:
+    """BT.709 primaries / transfer / matrix and limited range in the stream header (libavutil enum values)."""
+    cc = stream.codec_context
+    try:
+        cc.colorspace, cc.color_range, cc.color_primaries, cc.color_trc = 1, 1, 1, 1
+    except Exception:  # noqa: BLE001 - an older PyAV without these setters writes untagged
+        pass
+
+
 @resilient
 class ProResSave:
     DESCRIPTION = ("Export an IMAGE batch as Apple ProRes MOV (422 / 422 HQ / 4444 / "
@@ -428,7 +448,8 @@ class ProResSave:
             "output_dir": ("STRING", {"default": "output/mov"}),
             "filename": ("STRING", {"default": "output"}),
             "format": (tuple(cls.FORMATS), {"default": "MOV ProRes 4444"}),
-            "fps": ("FLOAT", {"default": 24.0, "min": 1.0, "max": 120.0, "step": 0.5}),
+            "fps": ("FLOAT", {"default": 24.0, "min": 1.0, "max": 120.0, "step": 0.001,
+                    "tooltip": "23.976 / 29.97 / 59.94 are written as exact NTSC rates (24000/1001 ...)."}),
         }, "optional": {
             "ocio_input_colorspace": ("STRING", {"default": "",
                 "tooltip": "Working colorspace before encode. Empty = no conversion (legacy)."}),
@@ -463,6 +484,8 @@ class ProResSave:
 
     @staticmethod
     def _write_prores(t: torch.Tensor, path: str, fps: float, profile: int, is_4444: bool):
+        """ProRes via prores_ks, converted with the BT.709 matrix (limited range) and tagged so (L9.39: the
+        conversion used swscale's BT.601 default with no tags)."""
         try:
             import av
         except ImportError as exc:
@@ -473,13 +496,15 @@ class ProResSave:
         src_fmt = "rgba64le" if has_alpha else "rgb48le"
         pix_fmt = "yuva444p10le" if is_4444 else "yuv422p10le"
         container = av.open(path, mode="w", format="mov")
-        stream = container.add_stream("prores_ks", rate=Fraction(fps).limit_denominator(10000))
+        stream = container.add_stream("prores_ks", rate=_exact_rate(fps))
         stream.width, stream.height, stream.pix_fmt = W, H, pix_fmt
         stream.options = {"profile": str(profile)}
+        _tag_bt709(stream)
         for i in range(B):
             f16 = (t[i].cpu().float().numpy() * 65535.0).clip(0, 65535).astype(np.uint16)
             arr = f16 if has_alpha else f16[:, :, :3]
-            frame = av.VideoFrame.from_ndarray(arr, format=src_fmt).reformat(format=pix_fmt)
+            frame = av.VideoFrame.from_ndarray(arr, format=src_fmt).reformat(
+                format=pix_fmt, dst_colorspace=1, dst_color_range=1)
             frame.pts = i
             for pkt in stream.encode(frame):
                 container.mux(pkt)
@@ -489,15 +514,33 @@ class ProResSave:
 
     @staticmethod
     def _write_mp4(t: torch.Tensor, path: str, fps: float):
-        import cv2
-        B, H, W, _ = t.shape
-        vw = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (W, H))
+        """H.264 (libx264, yuv420p, CRF 18) through PyAV, BT.709 limited range, tagged; odd sizes are padded by
+        one edge pixel (4:2:0 needs even sizes). It wrote MPEG-4 Part 2 through OpenCV's mp4v before (L9.39)."""
         try:
+            import av
+        except ImportError as exc:
+            raise ImportError("ProResSave needs PyAV: pip install av") from exc
+        B, H, W, _ = t.shape
+        Wp, Hp = W + (W % 2), H + (H % 2)
+        container = av.open(path, mode="w", format="mp4", options={"movflags": "+faststart"})
+        try:
+            stream = container.add_stream("libx264", rate=_exact_rate(fps))
+            stream.width, stream.height, stream.pix_fmt = Wp, Hp, "yuv420p"
+            stream.options = {"crf": "18", "preset": "medium"}
+            _tag_bt709(stream)
             for i in range(B):
-                u8 = (t[i, :, :, :3].cpu().float().numpy() * 255.0).clip(0, 255).astype(np.uint8)
-                vw.write(u8[:, :, ::-1])
+                u8 = (t[i, :, :, :3].cpu().float().numpy() * 255.0).clip(0, 255).round().astype(np.uint8)
+                if (Wp, Hp) != (W, H):
+                    u8 = np.pad(u8, ((0, Hp - H), (0, Wp - W), (0, 0)), mode="edge")
+                frame = av.VideoFrame.from_ndarray(np.ascontiguousarray(u8), format="rgb24").reformat(
+                    format="yuv420p", dst_colorspace=1, dst_color_range=1)
+                frame.pts = i
+                for pkt in stream.encode(frame):
+                    container.mux(pkt)
+            for pkt in stream.encode():
+                container.mux(pkt)
         finally:
-            vw.release()
+            container.close()
 
     @staticmethod
     def _tensor_to_pil_frames(t: torch.Tensor):
