@@ -74,9 +74,11 @@ def _register_mocha_routes() -> None:
     try:
         from server import PromptServer  # type: ignore
         from aiohttp import web  # type: ignore
+        # inside the guard (L9.39): a server module without an instance yet raised here, and the whole Mocha
+        # family failed to import
+        routes = PromptServer.instance.routes
     except Exception:
         return
-    routes = PromptServer.instance.routes
 
     @routes.post("/nukemax/mocha/upload")
     async def _upload(request):  # noqa: ANN001
@@ -134,7 +136,7 @@ def _images_to_bchw(image: torch.Tensor) -> torch.Tensor:
 
 
 def _bchw_to_image(x: torch.Tensor) -> torch.Tensor:
-    return x.permute(0, 2, 3, 1).contiguous().clamp(0.0, 1.0)
+    return x.permute(0, 2, 3, 1).contiguous()     # L9.39: no clamp
 
 
 def _broadcast_T(tensor_T: torch.Tensor, B: int) -> torch.Tensor:
@@ -234,8 +236,10 @@ def _homography_warp(image_bchw: torch.Tensor, H_per_frame: torch.Tensor, out_h:
         src_y = src[..., 1] / src[..., 2].clamp(min=1e-6)
         # Normalize to [-1,1] for grid_sample
         in_h, in_w = image_bchw.shape[-2:]
-        gx = 2 * src_x / max(in_w - 1, 1) - 1
-        gy = 2 * src_y / max(in_h - 1, 1) - 1
+        # pixel-centre coordinates (0..W-1, as the corner pins use) with align_corners=False: x_n = (2x + 1)/W - 1
+        # (L9.39: 2x/(W-1) - 1 put every sample up to half a pixel off)
+        gx = (2 * src_x + 1) / max(in_w, 1) - 1
+        gy = (2 * src_y + 1) / max(in_h, 1) - 1
         grid = torch.stack([gx, gy], dim=-1).unsqueeze(0)
         warped = F.grid_sample(
             image_bchw[t:t + 1].to(grid.dtype), grid.to(image_bchw.dtype),
@@ -575,17 +579,25 @@ class MochaInvertTrack:
 
     def execute(self, track: MochaTrack):
         if track.kind == "corner_pin":
+            # L9.39: this was a point reflection (2*ref - corners), which is no inverse of a perspective warp. The
+            # stabilising warp for frame t is S_t = H_0 . H_t^-1, where H_t maps the canvas rectangle onto frame t's
+            # tracked corners (how MochaApplyTrack uses a corner pin). As a corner pin, S_t is the canvas
+            # rectangle's corners carried through S_t - applying it reproduces S_t exactly, so the tracked plane
+            # stays where it was on frame 0.
             T = track.T
-            # Inverse = swap roles src<->dst by reflecting around frame 0
-            ref = track.params[0:1].expand(T, -1, -1).contiguous()
-            # New dst = ref, new src = original dst -> equivalent to mapping
-            # tracked plate back to its first-frame position.
-            new_params = ref + (ref - track.params)
-            # Better: keep first frame as identity, propagate backwards via
-            # direct substitution:
+            cw, ch = float(track.canvas_w), float(track.canvas_h)
+            rect = torch.tensor([[0.0, 0.0], [cw - 1, 0.0], [cw - 1, ch - 1], [0.0, ch - 1]], dtype=torch.float64)
+            rect_h = torch.cat([rect, torch.ones(4, 1, dtype=torch.float64)], dim=1)
+            h0 = _corner_pin_to_homography(rect, track.params[0].double()).double()
             new_params = track.params.clone()
             for t in range(T):
-                new_params[t] = ref[t] + (ref[t] - track.params[t])
+                ht = _corner_pin_to_homography(rect, track.params[t].double()).double()
+                try:
+                    st = h0 @ torch.linalg.inv(ht)
+                except Exception:  # noqa: BLE001 - a degenerate quad: leave that frame unstabilised
+                    st = torch.eye(3, dtype=torch.float64)
+                q = rect_h @ st.T
+                new_params[t] = (q[:, :2] / q[:, 2:3]).to(new_params.dtype)
             return (MochaTrack(
                 kind="corner_pin", params=new_params,
                 canvas_h=track.canvas_h, canvas_w=track.canvas_w,

@@ -229,16 +229,36 @@ function drawHistogram(st) {
     return;
   }
   const bins = d.bins || [];
-  const peak = Math.max(1, ...bins);
+  // scale to the in-range bins: the end bins collect everything clipped (black borders, blown highlights) and
+  // would flatten the rest; they are drawn capped at the top instead (L9.39)
+  const inner = bins.length > 4 ? bins.slice(1, -1) : bins;
+  const peak = Math.max(1, ...inner);
   const bw = w / Math.max(1, bins.length);
-  ctx.fillStyle = theme.curve;
-  for (let i = 0; i < bins.length; i++) {
-    const bh = (bins[i] / peak) * (h - 4);
-    ctx.fillRect(i * bw, h - bh, Math.max(1, bw - 0.5), bh);
+  if (Array.isArray(d.bins_rgb) && d.bins_rgb.length === 3) {
+    // L9.39: R, G, B as three lines (the rgb mode used to measure red only)
+    const cols = ["#eb5050", "#5ac86e", "#5a8cf0"];
+    d.bins_rgb.forEach((ch, k) => {
+      ctx.strokeStyle = cols[k];
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ch.forEach((c, i) => {
+        const y = h - Math.min(1, c / peak) * (h - 4);
+        if (i === 0) ctx.moveTo(0, y); else ctx.lineTo(i * bw + bw / 2, y);
+      });
+      ctx.stroke();
+    });
+  } else {
+    ctx.fillStyle = theme.curve;
+    for (let i = 0; i < bins.length; i++) {
+      const bh = Math.min(1, bins[i] / peak) * (h - 4);
+      ctx.fillRect(i * bw, h - bh, Math.max(1, bw - 0.5), bh);
+    }
   }
+  const lo = (d.range && d.range[0]) || 0;
   const top = (d.range && d.range[1]) || 1;
-  if (top > 1) {
-    const px = Math.round((1 / top) * w) + 0.5;
+  const oneAt = d.axis === "stops" ? Math.log2(1 / 0.18) : 1;      // where 1.0 sits on this axis
+  if (top > oneAt && oneAt > lo) {
+    const px = Math.round(((oneAt - lo) / (top - lo)) * w) + 0.5;
     ctx.strokeStyle = theme.accent;
     ctx.setLineDash([3, 3]);
     ctx.beginPath();
@@ -256,7 +276,7 @@ function drawHistogram(st) {
     `min ${(+d.min).toFixed(4)}   max ${(+d.max).toFixed(4)}   ` +
     `mean ${(+d.mean).toFixed(4)} · ` +
     `clipped ${(+d.clip_high).toFixed(2)}% high / ${(+d.clip_low).toFixed(2)}% low · ` +
-    `${d.mode} · ${frames}`,
+    `${d.mode}${d.axis === "stops" ? " · stops axis" : ""} · ${frames}`,
   );
 }
 

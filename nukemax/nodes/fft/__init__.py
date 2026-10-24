@@ -120,7 +120,18 @@ class LatentFrequencyMatch:
 
     def execute(self, noise_latent, context_image, n_bins):
         require_image_bhwc(context_image)
-        samples = noise_latent["samples"]  # (B,4,h,w) typically
+        samples = noise_latent["samples"]  # (B,C,h,w) image or (B,C,T,h,w) video latent
+        video = samples.ndim == 5
+        if video:
+            # L9.39: 5-D video latents crashed (`B, C, h, w = samples.shape`). Fold time into the batch, match each
+            # latent frame against the context frame at the same point in time, unfold after.
+            Bv, Cv, T = samples.shape[:3]
+            samples = samples.permute(0, 2, 1, 3, 4).reshape(Bv * T, Cv, *samples.shape[-2:])
+            n_ctx = int(context_image.shape[0])
+            pick = torch.linspace(0, n_ctx - 1, T).round().long() if n_ctx > 1 else torch.zeros(T, dtype=torch.long)
+            context_image = context_image[pick.repeat(Bv)]
+        elif samples.ndim != 4:
+            raise ValueError(f"Latent Frequency Match: expected a 4-D or 5-D latent, got {tuple(samples.shape)}.")
         B, C, h, w = samples.shape
         ctx = to_bchw(context_image)
         # Resample context to latent resolution and replicate channels via avg.
@@ -140,7 +151,11 @@ class LatentFrequencyMatch:
                 reps = (B + ctx_gray.shape[0] - 1) // ctx_gray.shape[0]
                 ctx_gray = ctx_gray.repeat(reps, 1, 1, 1)[:B]
         matched = nfft.match_ring_spectrum(samples, ctx_gray, n_bins=n_bins)
-        return ({"samples": matched},)
+        if video:
+            matched = matched.reshape(Bv, T, Cv, *matched.shape[-2:]).permute(0, 2, 1, 3, 4).contiguous()
+        out = dict(noise_latent)                       # keep noise_mask / batch_index (was samples only)
+        out["samples"] = matched
+        return (out,)
 
 
 @resilient

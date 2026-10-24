@@ -399,12 +399,15 @@ class HDRToneMap:
 
 @resilient
 class HDRHistogram:
-    DESCRIPTION = "Render HDR histogram and stops stats; input may exceed 1.0."
+    DESCRIPTION = ("HDR histogram and stops stats; input may exceed 1.0. luminance or R/G/B (rgb), on a linear axis "
+                   "or in stops around 18% grey (axis = stops, stops_range wide). A scope: it runs and shows on the "
+                   "node with nothing after it.")
 
     CATEGORY = _CATEGORY
     FUNCTION = "execute"
     RETURN_TYPES = ("IMAGE", "STRING")
     RETURN_NAMES = ("histogram", "stats")
+    OUTPUT_NODE = True          # L9.39: a scope with nothing after it never ran
 
     MODES = ["luminance", "rgb"]
 
@@ -419,11 +422,18 @@ class HDRHistogram:
                 "image": ("IMAGE",),
                 "mode": (cls.MODES, {"default": "luminance"}),
                 "show_clipping": ("BOOLEAN", {"default": True}),
-                "stops_range": ("INT", {"default": 14, "min": 8, "max": 24}),
-            }
+                "stops_range": ("INT", {"default": 14, "min": 8, "max": 24,
+                                "tooltip": "Width of the stops axis (axis = stops), centred on 18% grey."}),
+            },
+            "optional": {
+                # L9.39, appended: stops_range used to be printed in the title and nowhere else
+                "axis": (["linear", "stops"], {"default": "linear",
+                         "tooltip": "linear: 0 to the brightest value. stops: log2(value / 0.18), from "
+                                    "-stops_range/2 to +stops_range/2 - how film and HDR scopes read exposure."}),
+            },
         }
 
-    def execute(self, image, mode="luminance", show_clipping=True, stops_range=14):
+    def execute(self, image, mode="luminance", show_clipping=True, stops_range=14, axis="linear"):
         try:
             from PIL import Image, ImageDraw
         except ImportError as exc:
@@ -461,19 +471,47 @@ class HDRHistogram:
         graph_h = hist_h - margin * 2
         num_bins = 128
         bin_width = graph_w / num_bins
-        channel = luma.flatten() if mode == "luminance" else img[..., 0].flatten()
-        hist_vals, _ = np.histogram(channel, bins=num_bins, range=(0, max(1.0, max_val)))
+        half = float(stops_range) / 2.0
+        if axis == "stops":
+            lo_hi = (-half, half)
+
+            def to_axis(v):
+                return np.log2(np.clip(v, 1e-10, None) / 0.18)
+        else:
+            lo_hi = (0.0, max(1.0, max_val))
+
+            def to_axis(v):
+                return v
+        # L9.39: rgb drew the red channel alone
+        if mode == "luminance" or img.shape[-1] < 3:
+            series = [("L", luma.flatten(), (233, 69, 96))]
+        else:
+            series = [("R", img[..., 0].flatten(), (235, 80, 80)), ("G", img[..., 1].flatten(), (90, 200, 110)),
+                      ("B", img[..., 2].flatten(), (90, 140, 240))]
+        # out-of-range values pile up in the end bins (a scope shows them as clipped, not missing)
+        hists = [(name, np.histogram(np.clip(to_axis(v), lo_hi[0], lo_hi[1]), bins=num_bins, range=lo_hi)[0], col)
+                 for name, v, col in series]
+        hist_vals = hists[0][1] if len(hists) == 1 else np.max(np.stack([h for _, h, _ in hists]), axis=0)
         max_count = max(int(hist_vals.max()), 1)
-        for i, count in enumerate(hist_vals):
-            bar_h = int((count / max_count) * graph_h * 0.9)
-            x1 = margin + int(i * bin_width)
-            x2 = margin + int((i + 1) * bin_width)
-            draw.rectangle([x1, margin + graph_h - bar_h, x2, margin + graph_h], fill=(233, 69, 96))
+        for _name, hv, col in hists:
+            for i, count in enumerate(hv):
+                bar_h = int((count / max_count) * graph_h * 0.9)
+                if bar_h <= 0:
+                    continue
+                x1 = margin + int(i * bin_width)
+                x2 = margin + int((i + 1) * bin_width)
+                if len(hists) == 1:
+                    draw.rectangle([x1, margin + graph_h - bar_h, x2, margin + graph_h], fill=col)
+                else:
+                    draw.line([(x1, margin + graph_h - bar_h), (x2, margin + graph_h - bar_h)], fill=col, width=2)
         if show_clipping and max_val > 0:
-            white_x = margin + int(graph_w * min(1.0 / max_val, 1.0))
-            draw.line([(white_x, margin), (white_x, margin + graph_h)], fill=(255, 255, 0), width=2)
-        draw.text((margin, 8), f"HDR histogram ({stops_range} stops DR, {scope})",
-                  fill=(220, 220, 220))
+            one = to_axis(np.array(1.0))
+            frac = (float(one) - lo_hi[0]) / (lo_hi[1] - lo_hi[0])
+            if 0.0 <= frac <= 1.0:
+                white_x = margin + int(graph_w * frac)
+                draw.line([(white_x, margin), (white_x, margin + graph_h)], fill=(255, 255, 0), width=2)
+        axis_note = f"stops {-half:+g}..{half:+g} around 18% grey" if axis == "stops" else "linear"
+        draw.text((margin, 8), f"HDR histogram ({mode}, {axis_note}, {scope})", fill=(220, 220, 220))
         hist_np = np.array(hist_img).astype(np.float32) / 255.0
 
         # Socket values never reach the browser - only the `ui` payload
@@ -483,7 +521,9 @@ class HDRHistogram:
         # theme-aware plot at any zoom rather than blitting a fixed bitmap.
         scope = {
             "bins": [int(v) for v in hist_vals],
-            "range": [0.0, float(max(1.0, max_val))],
+            "bins_rgb": [[int(v) for v in h] for _, h, _ in hists] if len(hists) == 3 else None,
+            "axis": axis,
+            "range": [float(lo_hi[0]), float(lo_hi[1])],
             "min": min_val,
             "max": max_val,
             "mean": mean_val,

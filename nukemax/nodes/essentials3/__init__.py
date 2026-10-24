@@ -115,7 +115,7 @@ class Blur:
         require_image_bhwc(image)
         rgb, a = _split(image)
         rx, ry = size * aspect, size
-        rgb = _sep_blur(rgb, rx, ry).clamp(0, 1)
+        rgb = _sep_blur(rgb, rx, ry)
         if a is not None and blur_alpha:
             a = _sep_blur(a, rx, ry).clamp(0, 1)
         return (_join(rgb, a),)
@@ -189,7 +189,7 @@ class Emboss:
         out = _conv3x3(rgb, k)
         if grey:
             out = out + 0.5
-        return (_join(out.clamp(0, 1), a),)
+        return (_join(out, a),)
 
 
 @resilient
@@ -217,7 +217,7 @@ class Bilateral:
             for i in range(arr.shape[0]):
                 f = cv2.bilateralFilter(arr[i], d, sigma_color * 255.0, sigma_space)
                 out[i] = torch.from_numpy(f.astype(np.float32) / 255.0).to(rgb.device, rgb.dtype)
-            return (_join(out.clamp(0, 1), a),)
+            return (_join(out, a),)
         # Pure-torch fallback: windowed joint domain/range weighting.
         r = int(size)
         x = rgb.permute(0, 3, 1, 2)
@@ -233,7 +233,7 @@ class Bilateral:
                 w = wr * ws
                 acc += shift * w; wsum += w
         out = (acc / wsum.clamp(min=1e-6)).permute(0, 2, 3, 1)
-        return (_join(out.clamp(0, 1), a),)
+        return (_join(out, a),)
 
 
 @resilient
@@ -272,7 +272,7 @@ class ZDefocus:
             lo = (i - 0.5) / (n - 1)
             w = (coc >= lo).to(rgb.dtype).unsqueeze(-1)
             out = out * (1 - w) + blurred * w
-        return (_join(out.clamp(0, 1), a),)
+        return (_join(out, a),)
 
 
 @resilient
@@ -302,7 +302,7 @@ class MinMax:
         else:
             mn = -F.max_pool2d(-x, k, stride=1, padding=k // 2)
             out = mx - mn
-        return (_join(out.permute(0, 2, 3, 1).clamp(0, 1), a),)
+        return (_join(out.permute(0, 2, 3, 1), a),)
 
 
 # ───────────────────────── Transform ─────────────────────────
@@ -510,7 +510,7 @@ class Vignette:
             out = rgb * (1.0 - mask)
         else:
             out = rgb + (1.0 - rgb) * mask
-        return (_join(out.clamp(0, 1), a),)
+        return (_join(out, a),)
 
 
 # ───────────────────────── Color ─────────────────────────
@@ -537,7 +537,7 @@ class ChannelMixer:
         out = torch.einsum("bhwc,oc->bhwo", rgb, mat)
         if monochrome:
             out = out[..., 0:1].repeat(1, 1, 1, 3)
-        return (_join(out.clamp(0, 1), a),)
+        return (_join(out, a),)
 
 
 @resilient

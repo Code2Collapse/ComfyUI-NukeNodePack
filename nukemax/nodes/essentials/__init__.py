@@ -95,9 +95,10 @@ def _hex(s, default=(0.0, 0.0, 0.0)):
 # ───────────────────────── Color ─────────────────────────
 @resilient
 class Grade:
-    DESCRIPTION = ("Nuke Grade: per-channel blackpoint/whitepoint remap to lift/gain, then "
-                   "multiply, offset and gamma — the standard primary grade. "
-                   "out = ((in-bp)/(wp-bp) * (gain-lift) + lift) * multiply + offset, then ^(1/gamma).")
+    DESCRIPTION = ("Nuke Grade: blackpoint/whitepoint remap to lift/gain, multiply, offset and gamma, exactly as "
+                   "Nuke computes it: A = multiply*(gain-lift)/(whitepoint-blackpoint), B = offset+lift-A*blackpoint, "
+                   "out = (A*in+B)^(1/gamma) (gamma leaves values <= 0 alone). black_clamp (on) / white_clamp (off) "
+                   "as in Nuke; reverse undoes the grade; mix blends with the input. Linear float: no other clamp.")
     CATEGORY = "NukeMax/Color"
     FUNCTION = "execute"
     RETURN_TYPES = ("IMAGE",)
@@ -119,25 +120,51 @@ class Grade:
             "multiply": f(1.0, 0.0, 8.0),
             "offset": f(0.0, -1.0, 1.0),
             "gamma": f(1.0, 0.01, 5.0, 0.01),
-        }, "optional": {"mask": ("MASK", {})}}
+        }, "optional": {
+            "mask": ("MASK", {"tooltip": "Where the grade applies; another size is resized to the image."}),
+            # L9.39, appended (saved widgets keep their positions): Nuke Grade's own knobs
+            "black_clamp": ("BOOLEAN", {"default": True,
+                            "tooltip": "Clamp negative results to 0 (Nuke's default)."}),
+            "white_clamp": ("BOOLEAN", {"default": False,
+                            "tooltip": "Clamp results above 1 (off: highlights stay, linear float)."}),
+            "reverse": ("BOOLEAN", {"default": False,
+                        "tooltip": "Apply the inverse grade - undoes this grade with the same settings."}),
+            "mix": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01,
+                    "tooltip": "Blend with the input (0 = untouched)."}),
+        }}
 
-    def execute(self, image, blackpoint, whitepoint, lift, gain, multiply, offset, gamma, mask=None):
+    def execute(self, image, blackpoint, whitepoint, lift, gain, multiply, offset, gamma, mask=None,
+                black_clamp=True, white_clamp=False, reverse=False, mix=1.0):
         require_image_bhwc(image)
         rgb, alpha = _split(image)
         bp, wp = float(blackpoint), float(whitepoint)
         denom = (wp - bp) if abs(wp - bp) > 1e-6 else 1e-6
-        out = (rgb - bp) / denom
-        out = out * (float(gain) - float(lift)) + float(lift)
-        out = out * float(multiply) + float(offset)
-        if gamma != 1.0:
-            out = out.clamp(min=1e-6) ** (1.0 / float(gamma))
-        out = out.clamp(0, 1)
+        # Nuke's Grade (L9.39: lift used to be multiplied by `multiply` too, and the result clamped to 0..1)
+        a = float(multiply) * (float(gain) - float(lift)) / denom
+        b = float(offset) + float(lift) - a * bp
+        g = float(gamma)
+        if not reverse:
+            out = a * rgb + b
+            if g != 1.0:
+                out = torch.where(out > 0, out.clamp(min=0) ** (1.0 / g), out)
+        else:
+            x = torch.where(rgb > 0, rgb.clamp(min=0) ** g, rgb) if g != 1.0 else rgb
+            out = (x - b) / (a if abs(a) > 1e-12 else 1e-12)
+        if black_clamp:
+            out = out.clamp(min=0)
+        if white_clamp:
+            out = out.clamp(max=1)
+        w = float(mix)
         if mask is not None:
             m = mask
             if m.dim() == 3:
                 m = m.unsqueeze(-1)
-            if m.shape[1:3] == rgb.shape[1:3]:
-                out = rgb * (1 - m) + out * m
+            if m.shape[1:3] != rgb.shape[1:3]:
+                m = F.interpolate(m.permute(0, 3, 1, 2).float(), size=rgb.shape[1:3], mode="bilinear",
+                                  align_corners=False).permute(0, 2, 3, 1)
+            w = m.to(rgb.dtype) * w
+        if not (isinstance(w, float) and w == 1.0):
+            out = rgb * (1 - w) + out * w
         return (_join(out, alpha),)
 
 
@@ -163,7 +190,7 @@ class Multiply:
         require_image_bhwc(image)
         rgb, alpha = _split(image)
         g = torch.tensor([red * value, green * value, blue * value], device=rgb.device, dtype=rgb.dtype)
-        return (_join((rgb * g).clamp(0, 1), alpha),)
+        return (_join(rgb * g, alpha),)
 
 
 @resilient
@@ -186,8 +213,9 @@ class Gamma:
     def execute(self, image, gamma):
         require_image_bhwc(image)
         rgb, alpha = _split(image)
-        out = rgb.clamp(min=1e-6) ** (1.0 / float(gamma)) if gamma != 1.0 else rgb
-        return (_join(out.clamp(0, 1), alpha),)
+        # values <= 0 pass through, as Nuke's Gamma does (they used to become 1e-6, then everything was clamped)
+        out = torch.where(rgb > 0, rgb.clamp(min=0) ** (1.0 / float(gamma)), rgb) if gamma != 1.0 else rgb
+        return (_join(out, alpha),)
 
 
 @resilient
@@ -209,7 +237,7 @@ class Invert:
     def execute(self, image):
         require_image_bhwc(image)
         rgb, alpha = _split(image)
-        return (_join((1.0 - rgb).clamp(0, 1), alpha),)
+        return (_join(1.0 - rgb, alpha),)
 
 
 @resilient
@@ -234,12 +262,13 @@ class Exposure:
                         "tooltip": "Unit for the stops knob: f-stops, printer lights, or film density."}),
                     "multiply": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.01}),
                     "offset": ("FLOAT", {"default": 0.0, "min": -1.0, "max": 1.0, "step": 0.01}),
-                    "preserve_highlights": ("BOOLEAN", {"default": False,
-                        "tooltip": "When off (default), output is clamped 0–1 like the original node."}),
+                    "preserve_highlights": ("BOOLEAN", {"default": True,
+                        "tooltip": "On (default since L9.39): linear float, values above 1 stay. Off: clamp to "
+                                   "0-1 (older workflows keep the value they were saved with)."}),
                 }}
 
     def execute(self, image, stops, exposure_mode="stops", multiply=1.0, offset=0.0,
-                preserve_highlights=False):
+                preserve_highlights=True):
         require_image_bhwc(image)
         rgb, alpha = _split(image)
         s = float(stops)
@@ -389,7 +418,7 @@ class Dissolve:
             B = F.interpolate(B[..., :A.shape[-1]].permute(0, 3, 1, 2), size=A.shape[1:3],
                               mode="bilinear", align_corners=False).permute(0, 2, 3, 1)
         w = float(which)
-        return ((A * (1 - w) + B * w).clamp(0, 1).contiguous(),)
+        return ((A * (1 - w) + B * w).contiguous(),)
 
 
 @resilient
@@ -419,7 +448,7 @@ class Keymix:
         if m.shape[1:3] != A.shape[1:3]:
             m = F.interpolate(m.permute(0, 3, 1, 2), size=A.shape[1:3], mode="bilinear",
                               align_corners=False).permute(0, 2, 3, 1)
-        return ((A * m + B * (1 - m)).clamp(0, 1).contiguous(),)
+        return ((A * m + B * (1 - m)).contiguous(),)
 
 
 # ───────────────────────── Transform ─────────────────────────
@@ -461,11 +490,14 @@ class Transform:
             "skew_y": ("FLOAT", {"default": 0.0, "min": -89.0, "max": 89.0, "step": 0.1}),
             "scale_x": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 16.0, "step": 0.01}),
             "scale_y": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 16.0, "step": 0.01}),
+            # L9.39, appended
+            "invert": ("BOOLEAN", {"default": False,
+                       "tooltip": "Apply the inverse transform (undoes this one with the same settings)."}),
         }}
 
     def execute(self, image, translate_x, translate_y, rotate, scale, filter, wrap,
                 center_x=-1.0, center_y=-1.0, skew_x=0.0, skew_y=0.0,
-                scale_x=1.0, scale_y=1.0):
+                scale_x=1.0, scale_y=1.0, invert=False):
         require_image_bhwc(image)
         B, H, W, C = image.shape
         x = image.permute(0, 3, 1, 2)
@@ -476,31 +508,40 @@ class Transform:
         pad = {"black": "zeros", "edge": "border", "reflection": "reflection"}[wrap]
         legacy = (center_x < 0 and center_y < 0 and skew_x == 0.0 and skew_y == 0.0
                   and scale_x == 1.0 and scale_y == 1.0)
+        # The output->input map is built in PIXEL space: in = A_inv (out - c) + c - T, then expressed in
+        # grid_sample's normalised coordinates. L9.39: it used to be built in normalised space, where x and y have
+        # different scales on a non-square frame, so a rotation sheared the picture. For square frames this is
+        # exactly the previous matrix, so existing results do not change.
         if legacy:
             s = 1.0 / max(1e-6, float(scale))
-            theta = torch.tensor([[s * cos, s * sin, tx],
-                                  [-s * sin, s * cos, ty]], dtype=x.dtype).unsqueeze(0).repeat(B, 1, 1)
-            mode = filter if filter != "bicubic" else "bicubic"
+            a_inv = [[s * float(cos), s * float(sin)], [-s * float(sin), s * float(cos)]]
+            c = ((W - 1) * 0.5, (H - 1) * 0.5)
         else:
             sx = 1.0 / max(1e-6, float(scale) * float(scale_x))
             sy = 1.0 / max(1e-6, float(scale) * float(scale_y))
-            cx = float(center_x) if center_x >= 0 else W * 0.5
-            cy = float(center_y) if center_y >= 0 else H * 0.5
             skx = float(skew_x) * 3.14159265 / 180.0
             sky = float(skew_y) * 3.14159265 / 180.0
-            tcx, tcy = 2.0 * cx / W - 1.0, 2.0 * cy / H - 1.0
-            tan_x, tan_y = torch.tan(torch.tensor(skx)), torch.tan(torch.tensor(sky))
-            a11 = sx * cos + tan_y * sx * sin
-            a12 = sx * sin
-            a21 = sy * sin + tan_x * sy * cos
-            a22 = sy * cos
-            theta = torch.tensor([[a11, a12, tx + tcx - (a11 * tcx + a12 * tcy)],
-                                  [a21, a22, ty + tcy - (a21 * tcx + a22 * tcy)]],
-                                 dtype=x.dtype).unsqueeze(0).repeat(B, 1, 1)
-            mode = filter if filter in ("nearest", "bilinear", "bicubic") else "bicubic"  # noqa: E501  (defensive: enum is already limited to these)
+            tan_x, tan_y = float(torch.tan(torch.tensor(skx))), float(torch.tan(torch.tensor(sky)))
+            cf, sf = float(cos), float(sin)
+            a_inv = [[sx * cf + tan_y * sx * sf, sx * sf], [sy * sf + tan_x * sy * cf, sy * cf]]
+            # a centre given in pixel-edge coordinates is pixel-centre cx - 0.5 (what the old formula meant)
+            c = (float(center_x) - 0.5 if center_x >= 0 else (W - 1) * 0.5,
+                 float(center_y) - 0.5 if center_y >= 0 else (H - 1) * 0.5)
+        mode = filter if filter in ("nearest", "bilinear", "bicubic") else "bilinear"
+        m = torch.tensor([[a_inv[0][0], a_inv[0][1], 0.0], [a_inv[1][0], a_inv[1][1], 0.0], [0.0, 0.0, 1.0]],
+                         dtype=torch.float64)
+        to_c = torch.tensor([[1.0, 0, -c[0]], [0, 1.0, -c[1]], [0, 0, 1.0]], dtype=torch.float64)
+        back = torch.tensor([[1.0, 0, c[0] - float(translate_x)], [0, 1.0, c[1] - float(translate_y)],
+                             [0, 0, 1.0]], dtype=torch.float64)
+        px_map = back @ m @ to_c                                   # out_px -> in_px
+        if invert:
+            px_map = torch.linalg.inv(px_map)
+        d = torch.tensor([[W * 0.5, 0, (W - 1) * 0.5], [0, H * 0.5, (H - 1) * 0.5], [0, 0, 1.0]],
+                         dtype=torch.float64)                      # normalised -> pixel (align_corners=False)
+        theta = (torch.linalg.inv(d) @ px_map @ d)[:2].to(x.dtype).unsqueeze(0).repeat(B, 1, 1)
         grid = F.affine_grid(theta, x.shape, align_corners=False)
         out = F.grid_sample(x, grid.to(x.dtype), mode=mode, padding_mode=pad, align_corners=False)
-        return (out.permute(0, 2, 3, 1).clamp(0, 1).contiguous(),)
+        return (out.permute(0, 2, 3, 1).contiguous(),)
 
 
 @resilient
@@ -569,7 +610,7 @@ class Sharpen:
         require_image_bhwc(image)
         rgb, alpha = _split(image)
         blurred = _gauss(rgb, int(size))
-        out = (rgb + (rgb - blurred) * float(amount)).clamp(0, 1)
+        out = rgb + (rgb - blurred) * float(amount)
         return (_join(out, alpha),)
 
 
@@ -601,7 +642,7 @@ class Median:
         patches = patches.view(B, C, k * k, -1)
         med = patches.median(dim=2).values
         out = med.view(B, C, x.shape[2], x.shape[3]).permute(0, 2, 3, 1)
-        return (_join(out.clamp(0, 1), alpha),)
+        return (_join(out, alpha),)
 
 
 # ───────────────────────── Generators ─────────────────────────

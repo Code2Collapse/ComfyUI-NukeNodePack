@@ -155,7 +155,7 @@ class FlowBackwardWarp:
         else:
             f = f[:T]
         out = nflow.backward_warp(x, f)
-        return (to_bhwc(out.clamp(0, 1)),)
+        return (to_bhwc(out),)                  # L9.39: warped colour, no clamp
 
 
 @resilient
@@ -187,7 +187,7 @@ class FlowForwardWarp:
             f = f[:T]
         out, w = nflow.forward_warp(x, f)
         out_norm = out / w.clamp_min(1e-6)
-        return (to_bhwc(out_norm.clamp(0, 1)), w.squeeze(1).clamp(0, 1))
+        return (to_bhwc(out_norm), w.squeeze(1).clamp(0, 1))   # L9.39: colour unclamped, weight is a matte
 
 
 @resilient
@@ -263,7 +263,7 @@ class CleanPlateMerge:
             m = nblur.gaussian_blur(m, feather_px / 3.0)
         m = m.expand(T, 1, -1, -1) if m.shape[0] == 1 else m
         rgb_out, _ = merge_over_straight(plate_aligned, m, foot, torch.ones_like(m))
-        return (to_bhwc(rgb_out.clamp(0, 1)),)
+        return (to_bhwc(rgb_out),)              # L9.39: no clamp
 
 
 @resilient

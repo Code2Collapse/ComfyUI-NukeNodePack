@@ -338,7 +338,9 @@ class EXRSequenceSave:
                 "tooltip": "When off (default), legacy OpenEXR writer. When on, OIIO writes multi-format."}),
             "oiio_bit_depth": (("16f", "32f", "16", "8"), {"default": "16f"}),
             "oiio_compression": ("STRING", {"default": "zip"}),
-            "passes": ("NUKE_PASSES", {"tooltip": "Optional multi-pass bundle; used only with use_oiio_writer."}),
+            "passes": ("NUKE_PASSES", {"tooltip": "Optional multi-pass bundle; used only with use_oiio_writer. "
+                       "Each frame gets the image's own frame as its R G B A layer plus the passes: per-frame "
+                       "passes ([frames, H, W, C]) by frame, a single-frame bundle on every frame."}),
             "ocio_input_colorspace": ("STRING", {"default": "",
                 "tooltip": "Working colorspace before write. Empty = no conversion (legacy)."}),
             "ocio_output_colorspace": ("STRING", {"default": "",
@@ -356,6 +358,7 @@ class EXRSequenceSave:
         os.makedirs(output_dir.strip(), exist_ok=True)
         use_half = "16f" in bit_depth
         last = ""
+        notes = []
         cs_tag = ""
         if colorspace_in_filename and ocio_output_colorspace.strip():
             cs_tag = "_" + ocio_output_colorspace.strip().lower().replace(" ", "_")[:24]
@@ -368,24 +371,36 @@ class EXRSequenceSave:
                 base += ".exr"
             last = os.path.join(output_dir.strip(), base)
             if use_oiio_writer and passes is not None and getattr(passes, "passes", None):
+                # L9.39: the beauty was not written at all, every frame got the bundle's (single-frame) passes
+                # without saying so, and the file was always 32-bit float whatever oiio_bit_depth said.
                 from ...utils.sumit_multipass import channel_suffix_for_pass
-                from ...utils.sumit_io import write_image_oiio, _require_oiio
+                from ...utils.sumit_io import _require_oiio
                 oiio = _require_oiio()
-                chans = []
-                names = []
-                ref_hw = None
+                beauty = image[b].cpu().float().numpy()
+                hw = beauty.shape[:2]
+                chans = [beauty[..., ci] for ci in range(min(beauty.shape[-1], 4))]
+                names = ["R", "G", "B", "A"][:len(chans)]
                 for pname, tensor in passes.passes.items():
-                    t = tensor.cpu().float().numpy()
-                    if ref_hw is None:
-                        ref_hw = t.shape[:2]
+                    if str(pname).upper() in ("RGBA", "RGB", "BEAUTY"):
+                        continue                     # the image above is this frame's beauty
+                    t = tensor.detach().cpu().float()
+                    if t.ndim == 4:
+                        t = t[min(b, t.shape[0] - 1)]
+                    elif b == 0 and image.shape[0] > 1:
+                        notes.append(f"pass {pname} has one frame: written on all {image.shape[0]} frames")
+                    if t.ndim == 2:
+                        t = t.unsqueeze(-1)
+                    t = t.numpy()
+                    if t.shape[:2] != hw:
+                        raise ValueError(f"EXR Sequence Save: pass {pname} is {t.shape[1]}x{t.shape[0]}, the image "
+                                         f"is {hw[1]}x{hw[0]} - every layer of an EXR has the same size.")
+                    suf = channel_suffix_for_pass(pname, t.shape[-1])
                     for ci in range(t.shape[-1]):
                         chans.append(t[..., ci])
-                        suf = channel_suffix_for_pass(pname, t.shape[-1])
                         names.append(f"{pname}.{suf[ci]}" if len(suf) > ci else f"{pname}.ch{ci}")
                 stacked = np.stack(chans, axis=-1)
-                oiio = _require_oiio()
-                spec = oiio.ImageSpec(stacked.shape[1], stacked.shape[0], stacked.shape[2],
-                                      oiio.FLOAT)
+                fmt = oiio.HALF if str(oiio_bit_depth).startswith("16f") else oiio.FLOAT
+                spec = oiio.ImageSpec(stacked.shape[1], stacked.shape[0], stacked.shape[2], fmt)
                 spec.channelnames = names
                 spec.attribute("compression", oiio_compression)
                 os.makedirs(os.path.dirname(last) or ".", exist_ok=True)
@@ -400,7 +415,8 @@ class EXRSequenceSave:
                     raise IOError(f"OIIO could not write {last!r}")
             else:
                 _save_exr_frame(image[b].cpu().float().numpy(), last, use_half, compression)
-        return {"ui": {"text": [last]}, "result": (image, last)}
+        text = last + ("\n" + "\n".join(dict.fromkeys(notes)) if notes else "")
+        return {"ui": {"text": [text]}, "result": (image, last)}
 
 
 def _exact_rate(fps: float):

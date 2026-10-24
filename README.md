@@ -186,6 +186,32 @@ C2C workspace: `docs/evidence/L9.39/`):
 - **HDR Tone Map:** new nodes start on their own settings (a preset overrides every setting). **STMap Identity /
   Invert** use pixel centres, like STMap Apply, so Identity -> Apply reproduces the image.
 
+## Fixes 2026-10-24 (batch 2: linear float, Grade, Transform, channels)
+
+- **No more hidden clamps.** About 40 colour operations clipped their result to 0-1 although the pack works in
+  linear float: Multiply, Gamma, Invert, Dissolve, Keymix, Transform, Sharpen, Median, Add, Hue Shift, Despill,
+  Defocus, Soften, Blur, Emboss, Bilateral, Z Defocus, Min/Max, Vignette, Channel Mixer, Reformat, Color Correct,
+  Saturation, Glow, Erode/Dilate, the keyer's despilled colour, Shuffle, Pixel Aspect, Mocha warps, Grain Match, the
+  flow warps and the sRGB / Rec.709 conversions. Values above 1 now survive. Mattes, masks and generators still clamp;
+  use **Clamp** (or Grade's `white_clamp`) where you want 0-1. Exposure's `preserve_highlights` now defaults to on
+  (older workflows keep the value they were saved with).
+- **Grade** is Nuke's formula (`lift` was multiplied by `multiply` too). It has Nuke's `black_clamp` (on) and
+  `white_clamp` (off), plus `reverse` (undo the grade) and `mix`. Gamma leaves values at or below 0 alone, and a mask
+  of another size is resized instead of ignored.
+- **Transform** no longer shears non-square frames when it rotates: a 30 px square rotated 45° on a 16:9 frame came
+  out 58×32, now 42×42. Square frames give exactly the same result as before. New `invert`.
+- **Shuffle:** `output` = rgba keeps the shuffled alpha in the image, and channels 5-8 (Ch4-Ch7) of multi-channel
+  images can be picked. **Shuffle Latent** works on video latents (5-D) and keeps the noise mask; a wrong channel is
+  an error instead of a silent clamp. **Copy** keeps B's channels beyond RGBA.
+- **HDR Histogram** runs on its own (output node), `rgb` really shows R, G and B (it showed red only), and
+  `axis = stops` plots exposure in stops around 18% grey over `stops_range`.
+- **Mocha Invert Track** for corner pins is the real stabilising homography (it was a point reflection), and the
+  corner-pin warp samples pixel centres (it was up to half a pixel off). The Mocha nodes no longer fail to import
+  when the server is not up yet.
+- **EXR Sequence Save with passes** writes each frame's own image as R, G, B, A next to the passes, uses per-frame
+  passes by frame, and writes half floats when `oiio_bit_depth` is 16f.
+- **Latent Frequency Match** works on video latents.
+
 ## Tests
 
 The test suite stays on the developer's machine and is not in this repository (owner rule 2026-10-23). CI boots

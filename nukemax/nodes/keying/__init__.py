@@ -90,7 +90,7 @@ class ChromaKeyer:
             spill = (d.clamp(min=0.0)) * float(despill)
             new_prim = torch.maximum(prim - spill, other)
             rgb[..., ci] = torch.minimum(rgb[..., ci], new_prim)
-        rgb = rgb.clamp(0.0, 1.0).contiguous()
+        rgb = rgb.contiguous()                 # L9.39: despilled colour is not clamped
         return (rgb, matte)
 
 

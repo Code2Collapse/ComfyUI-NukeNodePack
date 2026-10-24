@@ -126,7 +126,7 @@ class Reformat:
         mode = filter
         kw = {} if mode in ("nearest", "area") else {"align_corners": False}
         if fit_mode in ("distort", "none"):   # "none" = legacy alias, explicit stretch
-            result = _bhwc(F.interpolate(x, size=(th, tw), mode=mode, **kw)).clamp(0, 1)
+            result = _bhwc(F.interpolate(x, size=(th, tw), mode=mode, **kw))
             if turn:
                 result = torch.rot90(result, k=-1, dims=(1, 2))
             if flop:
@@ -158,7 +158,7 @@ class Reformat:
         dy, dx = max(0, oy), max(0, ox)
         ch, cw = min(rh - sy, th - dy), min(rw - sx, tw - dx)
         out[:, :r.shape[1], dy:dy + ch, dx:dx + cw] = r[:, :, sy:sy + ch, sx:sx + cw]
-        result = _bhwc(out).clamp(0, 1)
+        result = _bhwc(out)
         if turn:
             result = torch.rot90(result, k=-1, dims=(1, 2))
         if flop:
@@ -263,14 +263,14 @@ class ColorCorrect:
         require_image_bhwc(image)
         img = image[..., :3]
         out = img * float(gain) + float(offset)
-        out = out.clamp(min=1e-6) ** (1.0 / float(gamma)) if gamma != 1.0 else out
+        if gamma != 1.0:                            # values <= 0 pass through (as Grade)
+            out = torch.where(out > 0, out.clamp(min=0) ** (1.0 / float(gamma)), out)
         if contrast != 1.0:
             out = (out - 0.5) * float(contrast) + 0.5
         if saturation != 1.0:
             lum = out[..., 0] * _LUMA[0] + out[..., 1] * _LUMA[1] + out[..., 2] * _LUMA[2]
             out = lum.unsqueeze(-1) + (out - lum.unsqueeze(-1)) * float(saturation)
-        rest = image[..., 3:]
-        out = out.clamp(0, 1)
+        rest = image[..., 3:]                       # L9.39: linear float, no clamp
         if rest.shape[-1]:
             out = torch.cat([out, rest], dim=-1)
         return (out.contiguous(),)
@@ -329,7 +329,7 @@ class Saturation:
         require_image_bhwc(image)
         img = image[..., :3]
         lum = img[..., 0] * _LUMA[0] + img[..., 1] * _LUMA[1] + img[..., 2] * _LUMA[2]
-        out = (lum.unsqueeze(-1) + (img - lum.unsqueeze(-1)) * float(saturation)).clamp(0, 1)
+        out = lum.unsqueeze(-1) + (img - lum.unsqueeze(-1)) * float(saturation)
         rest = image[..., 3:]
         if rest.shape[-1]:
             out = torch.cat([out, rest], dim=-1)
@@ -365,7 +365,7 @@ class Glow:
         mask = (lum.unsqueeze(-1) - float(threshold)).clamp(min=0.0) / max(1e-4, 1.0 - float(threshold))
         bright = img * mask
         halo = _blur(bright, int(size)) * float(intensity)
-        out = (img + halo).clamp(0, 1)   # additive (screen-like) bloom
+        out = img + halo                 # additive bloom; linear float, no clamp
         rest = image[..., 3:]
         if rest.shape[-1]:
             out = torch.cat([out, rest], dim=-1)
@@ -404,7 +404,7 @@ class ErodeDilate:
             x = F.max_pool2d(x, kernel_size=k, stride=1, padding=abs(n))
         else:
             x = -F.max_pool2d(-x, kernel_size=k, stride=1, padding=abs(n))
-        return (x.permute(0, 2, 3, 1).clamp(0, 1).contiguous(),)
+        return (x.permute(0, 2, 3, 1).contiguous(),)
 
 
 NODE_CLASS_MAPPINGS = {

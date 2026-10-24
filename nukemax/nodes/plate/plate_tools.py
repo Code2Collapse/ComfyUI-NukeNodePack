@@ -114,7 +114,7 @@ class GrainMatchMEC:
         B = target.shape[0]
         idx = torch.randint(0, ref.shape[0], (B,), generator=gen)
         sampled = grain[idx]
-        out = (target + intensity * sampled).clamp(0.0, 1.0)
+        out = target + intensity * sampled     # L9.39: grain on linear float, no clamp
         return (out, json.dumps({"grain_std": grain_std, "intensity": intensity, "denoise_kernel": k}))
 
 

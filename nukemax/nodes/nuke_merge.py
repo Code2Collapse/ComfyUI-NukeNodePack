@@ -96,7 +96,10 @@ class Copy:
         a = match_batch(match_size(A, B), B, "A")
         planes = [_channel(a, B, out_R), _channel(a, B, out_G),
                   _channel(a, B, out_B), _channel(a, B, out_A)]
-        out = torch.stack(planes, dim=-1).contiguous()
+        out = torch.stack(planes, dim=-1)
+        if B.shape[-1] > 4:                 # L9.39: B's other channels (EXR passes) pass through, as in Nuke
+            out = torch.cat([out, B[..., 4:].to(out.dtype)], dim=-1)
+        out = out.contiguous()
         return (out, out[..., 3].contiguous())
 
 

@@ -116,7 +116,7 @@ class Add:
         require_image_bhwc(image)
         rgb, a = _split(image)
         add = torch.tensor([red + value, green + value, blue + value], device=rgb.device, dtype=rgb.dtype)
-        return (_join((rgb + add).clamp(0, 1), a),)
+        return (_join(rgb + add, a),)
 
 
 @resilient
@@ -135,11 +135,11 @@ class HueShift:
     def execute(self, image, hue_degrees, saturation, value):
         require_image_bhwc(image)
         rgb, a = _split(image)
-        hsv = _rgb_to_hsv(rgb.clamp(0, 1))
+        hsv = _rgb_to_hsv(rgb.clamp(min=0))
         hsv[..., 0] = (hsv[..., 0] + float(hue_degrees) / 360.0) % 1.0
         hsv[..., 1] = (hsv[..., 1] * float(saturation)).clamp(0, 1)
-        hsv[..., 2] = (hsv[..., 2] * float(value)).clamp(0, 1)
-        return (_join(_hsv_to_rgb(hsv).clamp(0, 1), a),)
+        hsv[..., 2] = (hsv[..., 2] * float(value)).clamp(min=0)
+        return (_join(_hsv_to_rgb(hsv), a),)
 
 
 @resilient
@@ -286,7 +286,7 @@ class Despill:
         else:
             limit = torch.maximum(r, g)
             out[..., 2] = torch.where(b > limit, b + (limit - b) * amt, b)
-        return (_join(out.clamp(0, 1), a),)
+        return (_join(out, a),)
 
 
 # ───────────────────────── Filter ─────────────────────────
@@ -309,7 +309,7 @@ class Defocus:
         disc = (disc / disc.sum()).to(x.dtype)
         k = disc.view(1, 1, 2 * r + 1, 2 * r + 1).repeat(C, 1, 1, 1)
         x = F.conv2d(F.pad(x, (r, r, r, r), mode="reflect"), k, groups=C)
-        return (_join(x.permute(0, 2, 3, 1).clamp(0, 1), a),)
+        return (_join(x.permute(0, 2, 3, 1), a),)
 
 
 @resilient
@@ -327,7 +327,7 @@ class Soften:
         require_image_bhwc(image)
         rgb, a = _split(image)
         out = rgb * (1 - float(amount)) + _gauss(rgb, int(size)) * float(amount)
-        return (_join(out.clamp(0, 1), a),)
+        return (_join(out, a),)
 
 
 # ───────────────────────── Transform ─────────────────────────

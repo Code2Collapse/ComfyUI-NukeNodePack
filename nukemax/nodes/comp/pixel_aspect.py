@@ -41,7 +41,7 @@ def _resize(img: torch.Tensor, w: int, h: int, filt: str) -> torch.Tensor:
     x = img.permute(0, 3, 1, 2)
     kw = {} if filt in ("nearest", "area") else {"align_corners": False}
     x = F.interpolate(x, size=(h, w), mode=filt, **kw)
-    return x.permute(0, 2, 3, 1).clamp(0, 1)
+    return x.permute(0, 2, 3, 1)               # L9.39: no clamp
 
 
 def _resolve_par(preset: str, pixel_aspect: float) -> float:

@@ -112,9 +112,9 @@ def _convert(img: torch.Tensor, src: str, dst: str) -> torch.Tensor:
         raise ValueError(f"Unknown source space: {src}")
 
     if dst == "srgb":
-        return _linear_to_srgb(ref).clamp(0.0, 1.0)
+        return _linear_to_srgb(ref)            # L9.39: no clamp (as Nuke's Colorspace)
     if dst == "rec709":
-        return _linear_to_rec709(ref).clamp(0.0, 1.0)
+        return _linear_to_rec709(ref)
     if dst == "acescg":
         return _apply_matrix(ref, _M_SRGB_TO_ACESCG)
     if dst == "logc3":
@@ -415,7 +415,7 @@ class ExposureGradeMEC:
             x = (x - pivot) * contrast + pivot
         if operate_in_linear:
             x = _linear_to_srgb(x.clamp_min(0.0))
-        return (x.clamp(0.0, 1.0),)
+        return (x,)                            # L9.39: linear float, no clamp
 
 
 NODE_CLASS_MAPPINGS = {
