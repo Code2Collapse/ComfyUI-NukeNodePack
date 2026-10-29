@@ -188,20 +188,36 @@ def _parse_value(cur: _Cursor) -> Any:
     if kind == "tok":
         return _coerce(val)
     if kind == "lb":
-        items: list[Any] = []
-        depth = 1
-        while not cur.eof() and depth > 0:
-            k, _v = cur.peek()
-            if k == "rb":
-                cur.take(); depth -= 1
-                if depth == 0: break
-                items.append("}"); continue
-            if k == "lb":
-                cur.take(); depth += 1
-                items.append("{"); continue
-            items.append(_parse_value(cur))
-        return items
+        return _parse_braced(cur)
     return val
+
+
+def _parse_braced(cur: _Cursor) -> Any:
+    """The rest of a braced value (the opening brace is taken). Nuke writes number arrays (translate {10 20},
+    color {1 0 0 1}) AND strings (label {my label}, a file path with spaces) in braces: a group of plain values that
+    are all numbers stays a list; a group of plain values with any word is that text, joined by single spaces (the
+    way the TCL clipboard of ComfyUI-CustomNodePacks wrote strings, P32); a group holding nested groups stays as
+    parsed."""
+    items: list[Any] = []
+    raw: list[str] = []
+    nested = False
+    depth = 1
+    while not cur.eof() and depth > 0:
+        k, v = cur.peek()
+        if k == "rb":
+            cur.take(); depth -= 1
+            if depth == 0: break
+            items.append("}"); nested = True; continue
+        if k == "lb":
+            cur.take(); depth += 1
+            items.append("{"); nested = True; continue
+        raw.append(v if k in ("tok", "str") else (f"[{v}]" if k == "bracket" else f"${v}"))
+        items.append(_parse_value(cur))
+    if nested:
+        return items
+    if items and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in items):
+        return items
+    return " ".join(raw)
 
 
 def parse(text: str) -> list[NodeDef]:
@@ -290,19 +306,7 @@ def _parse_node_block(cur: _Cursor, class_type: str) -> NodeDef:
             break
         if cur.peek()[0] == "lb":
             cur.take()
-            val: Any = []
-            depth = 1
-            while not cur.eof() and depth > 0:
-                kk, _vv = cur.peek()
-                if kk == "rb":
-                    cur.take(); depth -= 1
-                    if depth == 0: break
-                    val.append("}"); continue
-                if kk == "lb":
-                    cur.take(); depth += 1
-                    val.append("{"); continue
-                val.append(_parse_value(cur))
-            value = val
+            value = _parse_braced(cur)
         else:
             value = _parse_value(cur)
         if knob == "name":

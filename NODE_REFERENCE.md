@@ -3597,6 +3597,8 @@ Invert a MOCHA_TRACK so applying it stabilizes the plate (locks the tracked plan
 
 ## NukeMax/NkScript
 
+Braced values follow Nuke: a group of numbers (`translate {10 20}`) is a list, a group with any word (`label {my label}`, a file path with spaces) is that text. Saved TCL Parse / TCL Serialize nodes of ComfyUI-CustomNodePacks load as these two (L7.65 P32), and the TCL they wrote still parses.
+
 
 ### NukeMax_NkScriptParse
 
