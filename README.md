@@ -224,6 +224,7 @@ ComfyUI with this pack and fails on an import failure, no registered node, or a 
 - All temporal nodes operate batch-first (B = T), no per-frame Python loops in the hot path.
 - The dual-output discipline is enforced: classical VFX socket on the left, AI-consumable socket on the right, on every node where both are meaningful.
 - Works inside subgraphs: each node's run status and plain-English error, NkScript copy / paste and the Mocha file drop all follow nodes that live inside (nested) subgraphs.
+- NkScript (Ctrl+Shift+C / V, NkScript Parse / Serialize) reads braced values as Nuke does: numbers are a list, words are text. It also took over ComfyUI-CustomNodePacks' TCL Parse / Serialize: saved ones load as the NkScript nodes.
 
 ## License
 
