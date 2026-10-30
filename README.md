@@ -225,6 +225,7 @@ ComfyUI with this pack and fails on an import failure, no registered node, or a 
 - The dual-output discipline is enforced: classical VFX socket on the left, AI-consumable socket on the right, on every node where both are meaningful.
 - Works inside subgraphs: each node's run status and plain-English error, NkScript copy / paste and the Mocha file drop all follow nodes that live inside (nested) subgraphs.
 - NkScript (Ctrl+Shift+C / V, NkScript Parse / Serialize) reads braced values as Nuke does: numbers are a list, words are text. It also took over ComfyUI-CustomNodePacks' TCL Parse / Serialize: saved ones load as the NkScript nodes.
+- EXR Sequence Read / Write took over ComfyUI-CustomNodePacks' Load / Save EXR: `single_file` on Read and `file_path` on Write run that engine unchanged. That is OpenImageIO first, named AOV channels, compression, metadata, an alpha channel and an `info_json` output. Saved ones load as these nodes and write the same files (only OpenImageIO's write time stamp differs).
 
 ## License
 

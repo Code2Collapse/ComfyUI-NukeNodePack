@@ -2433,6 +2433,7 @@ Nuke Read: load an EXR sequence (render.####.exr, %04d, or any frame file of the
 | `start_frame` | `INT` | default `-1`, range -1…10000000 | -1 = first detected frame |
 | `end_frame` | `INT` | default `-1`, range -1…10000000 | -1 = last detected frame |
 | `every_nth` | `INT` | default `1`, range 1…1000 | — |
+| `single_file` | `BOOLEAN` | default `False` | Read exactly this one file (no sequence detection), OpenImageIO first then OpenEXR then imageio, RGB out; info_json lists every channel, the compression and the metadata. Saved Load EXR (CustomNodePacks) nodes load with it on (L7.65 P30). |
 
 **Outputs**
 
@@ -2442,6 +2443,7 @@ Nuke Read: load an EXR sequence (render.####.exr, %04d, or any frame file of the
 | 1 | `frame_count` | `INT` | — |
 | 2 | `width` | `INT` | — |
 | 3 | `height` | `INT` | — |
+| 4 | `info_json` | `STRING` | What was read: backend, size, channels (single_file: every channel name, the compression and the metadata). |
 
 
 ### NukeMax_EXRSequenceSave
@@ -2459,13 +2461,16 @@ Nuke Write: save an IMAGE batch as an EXR sequence (filename %04d → frame numb
 | `output_dir` | `STRING` | default `"output/exr"` | — |
 | `filename` | `STRING` | default `"render_%04d"` | %04d is replaced by the frame number |
 | `bit_depth` | choice: `16f (half-float)`, `32f (float)` | default `"16f (half-float)"` | — |
-| `compression` | choice: `ZIP  (lossless, recommended)`, `ZIPS (lossless, scanline)`, `PIZ  (lossless, wavelet)`, `PXR24 (lossy, 24-bit)`, `RLE  (lossless, run-length)`, `B44  (lossy, fixed ratio)`, `DWAA (lossy, DCT, fast)`, `None (uncompressed)` | default `"ZIP  (lossless, recommended)"` | — |
+| `compression` | choice: `ZIP  (lossless, recommended)`, `ZIPS (lossless, scanline)`, `PIZ  (lossless, wavelet)`, `PXR24 (lossy, 24-bit)`, `RLE  (lossless, run-length)`, `B44  (lossy, fixed ratio)`, `DWAA (lossy, DCT, fast)`, `None (uncompressed)`, `DWAB (lossy, DCT, 256 lines)` | default `"ZIP  (lossless, recommended)"` | — |
 
 **Optional inputs**
 
 | Parameter | Type | Constraints | What it does |
 |---|---|---|---|
 | `start_frame` | `INT` | default `1`, range 0…10000000 | — |
+| `file_path` | `STRING` | default `""` | One path instead of output_dir + filename: a single frame is written to exactly this file, a batch as _0001, _0002... OpenImageIO first; writes metadata_json and aov_alpha. Codecs: ZIPS, ZIP, PIZ, DWAA, DWAB, RLE, None. Saved Save EXR (CustomNodePacks) nodes load with it set (L7.65 P30). |
+| `metadata_json` | `STRING` | default `""`, multiline | With file_path: a JSON object of EXR attributes to embed. |
+| `aov_alpha` | `MASK` |  | With file_path: a MASK written as a named A channel next to RGB. |
 
 **Outputs**
 
@@ -2473,6 +2478,7 @@ Nuke Write: save an IMAGE batch as an EXR sequence (filename %04d → frame numb
 |---|---|---|---|
 | 0 | `image` | `IMAGE` | — |
 | 1 | `last_path` | `STRING` | — |
+| 2 | `info_json` | `STRING` | What was written (file_path: every frame's path, channels, bit depth, compression, metadata). |
 
 
 ### NukeMax_ProResSave

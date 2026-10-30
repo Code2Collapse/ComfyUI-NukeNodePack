@@ -12,6 +12,7 @@ types, NukeMax categories, and file-mtime cache keys on the loader.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 
@@ -47,6 +48,7 @@ except ImportError:
 _OIIO_COMPRESSION = {
     "ZIP_COMPRESSION": "zip", "ZIPS_COMPRESSION": "zips", "PIZ_COMPRESSION": "piz", "PXR24_COMPRESSION": "pxr24",
     "RLE_COMPRESSION": "rle", "B44_COMPRESSION": "b44", "DWAA_COMPRESSION": "dwaa", "NO_COMPRESSION": "none",
+    "DWAB_COMPRESSION": "dwab",
 }
 
 from ...utils.resilience import resilient
@@ -62,7 +64,12 @@ COMPRESSIONS = {
     "B44  (lossy, fixed ratio)":    "B44_COMPRESSION",
     "DWAA (lossy, DCT, fast)":      "DWAA_COMPRESSION",
     "None (uncompressed)":          "NO_COMPRESSION",
+    "DWAB (lossy, DCT, 256 lines)": "DWAB_COMPRESSION",      # L7.65 P30: Save EXR (CustomNodePacks) offered it
 }
+# L7.65 P30: the codec names of CustomNodePacks' Save EXR, which file_path mode writes through (exr_c2c.save_path)
+_C2C_CODEC = {"ZIPS_COMPRESSION": "zips", "ZIP_COMPRESSION": "zip", "PIZ_COMPRESSION": "piz",
+              "DWAA_COMPRESSION": "dwaa", "DWAB_COMPRESSION": "dwab", "RLE_COMPRESSION": "rle",
+              "NO_COMPRESSION": "none"}
 BIT_DEPTHS = ["16f (half-float)", "32f (float)"]
 
 _PRORES_PROFILES = {
@@ -226,8 +233,8 @@ class EXRSequenceLoad:
                    "error, insert black, or hold the previous frame.")
     CATEGORY = "NukeMax/IO"
     FUNCTION = "execute"
-    RETURN_TYPES = ("IMAGE", "INT", "INT", "INT")
-    RETURN_NAMES = ("image", "frame_count", "width", "height")
+    RETURN_TYPES = ("IMAGE", "INT", "INT", "INT", "STRING")
+    RETURN_NAMES = ("image", "frame_count", "width", "height", "info_json")
 
     @classmethod
     def IS_CHANGED(cls, path="", **kwargs):
@@ -259,10 +266,20 @@ class EXRSequenceLoad:
                 "tooltip": "ACES/OCIO: file colorspace on load. Empty = no conversion (legacy)."}),
             "ocio_output_colorspace": ("STRING", {"default": "",
                 "tooltip": "ACES/OCIO: working colorspace after load. Empty = no conversion."}),
+            # L7.65 P30: appended - CustomNodePacks' Load EXR loads as this node with it on
+            "single_file": ("BOOLEAN", {"default": False,
+                "tooltip": "Read exactly this one file (no sequence detection), OpenImageIO first then OpenEXR then "
+                           "imageio, RGB out; info_json lists every channel, the compression and the metadata."}),
         }}
 
     def execute(self, path, missing_frames, start_frame=-1, end_frame=-1, every_nth=1,
-                use_oiio_reader=False, ocio_input_colorspace="", ocio_output_colorspace=""):
+                use_oiio_reader=False, ocio_input_colorspace="", ocio_output_colorspace="", single_file=False):
+        from ...utils.ocio_convert import apply_colorspace_convert
+        if single_file:
+            from .exr_c2c import load_single
+            t, info = load_single(path)
+            t = apply_colorspace_convert(t, ocio_input_colorspace, ocio_output_colorspace)
+            return (t, 1, t.shape[2], t.shape[1], info)
         template, frames = _detect_sequence(path)
         if frames is None:
             if use_oiio_reader:
@@ -276,11 +293,10 @@ class EXRSequenceLoad:
                     t = t.repeat(1, 1, 1, 3)
                 from ...utils.ocio_convert import apply_colorspace_convert
                 t = apply_colorspace_convert(t, ocio_input_colorspace, ocio_output_colorspace)
-                return (t, 1, t.shape[2], t.shape[1])
+                return (t, 1, t.shape[2], t.shape[1], _seq_info(template, None, t, "OpenImageIO"))
             t = _load_exr_frame(template)
-            from ...utils.ocio_convert import apply_colorspace_convert
             t = apply_colorspace_convert(t, ocio_input_colorspace, ocio_output_colorspace)
-            return (t, 1, t.shape[2], t.shape[1])
+            return (t, 1, t.shape[2], t.shape[1], _seq_info(template, None, t, "EXR"))
         lo = frames[0] if start_frame < 0 else start_frame
         hi = frames[-1] if end_frame < 0 else end_frame
         wanted = list(range(lo, hi + 1, max(1, every_nth)))
@@ -303,9 +319,17 @@ class EXRSequenceLoad:
             else:
                 tensors.append(last_good)
         out = torch.cat(tensors, dim=0)
-        from ...utils.ocio_convert import apply_colorspace_convert
         out = apply_colorspace_convert(out, ocio_input_colorspace, ocio_output_colorspace)
-        return (out, out.shape[0], out.shape[2], out.shape[1])
+        return (out, out.shape[0], out.shape[2], out.shape[1], _seq_info(template, wanted, out, "EXR"))
+
+
+def _seq_info(template, frames, t, reader):
+    """info_json of a sequence (or plain-file) read: what was read, its size and channel count."""
+    import json as _json
+    return _json.dumps({"backend": reader, "path": str(template).replace("\\", "/"),
+                        "frames": [int(frames[0]), int(frames[-1])] if frames else None,
+                        "frame_count": int(t.shape[0]), "width": int(t.shape[2]), "height": int(t.shape[1]),
+                        "n_channels": int(t.shape[-1])}, indent=2)
 
 
 @resilient
@@ -314,8 +338,8 @@ class EXRSequenceSave:
                    "→ frame numbers) — half/float, all standard compressions.")
     CATEGORY = "NukeMax/IO"
     FUNCTION = "execute"
-    RETURN_TYPES = ("IMAGE", "STRING")
-    RETURN_NAMES = ("image", "last_path")
+    RETURN_TYPES = ("IMAGE", "STRING", "STRING")
+    RETURN_NAMES = ("image", "last_path", "info_json")
     OUTPUT_NODE = True
 
     @classmethod
@@ -347,14 +371,34 @@ class EXRSequenceSave:
                 "tooltip": "File colorspace to encode. Empty = no conversion."}),
             "colorspace_in_filename": ("BOOLEAN", {"default": False,
                 "tooltip": "Append a short colorspace tag to the output filename (OCIO Write style)."}),
+            # L7.65 P30: appended - CustomNodePacks' Save EXR loads as this node with file_path set
+            "file_path": ("STRING", {"default": "",
+                "tooltip": "One path instead of output_dir + filename: a single frame is written to exactly this "
+                           "file, a batch as _0001, _0002... OpenImageIO first; writes metadata_json and aov_alpha. "
+                           "Codecs: ZIPS, ZIP, PIZ, DWAA, DWAB, RLE, None."}),
+            "metadata_json": ("STRING", {"default": "", "multiline": True,
+                "tooltip": "With file_path: a JSON object of EXR attributes to embed, e.g. "
+                           "{\"comment\": \"shot_0010\", \"camera\": \"ARRI\"}."}),
+            "aov_alpha": ("MASK", {"tooltip": "With file_path: a MASK written as a named A channel next to RGB."}),
         }}
 
     def execute(self, image, output_dir, filename, bit_depth, compression, start_frame=1,
                 use_oiio_writer=False, oiio_bit_depth="16f", oiio_compression="zip", passes=None,
-                ocio_input_colorspace="", ocio_output_colorspace="", colorspace_in_filename=False):
+                ocio_input_colorspace="", ocio_output_colorspace="", colorspace_in_filename=False,
+                file_path="", metadata_json="", aov_alpha=None):
         require_image_bhwc(image)
         from ...utils.ocio_convert import apply_colorspace_convert
         image = apply_colorspace_convert(image, ocio_input_colorspace, ocio_output_colorspace)
+        if str(file_path or "").strip():
+            codec = _C2C_CODEC.get(COMPRESSIONS.get(compression, ""), None)
+            if codec is None:
+                raise ValueError(f"EXR Sequence Save: with file_path the codec is one of ZIPS, ZIP, PIZ, DWAA, DWAB, "
+                                 f"RLE or None ({compression!r} is not).")
+            from .exr_c2c import save_path
+            (info,) = save_path(image, file_path, half_float="16f" in bit_depth, compression=codec,
+                                metadata_json=metadata_json, aov_alpha=aov_alpha)
+            last = json.loads(info)["frames"][-1]["path"] if image.shape[0] else ""
+            return {"ui": {"text": [last]}, "result": (image, last, info)}
         os.makedirs(output_dir.strip(), exist_ok=True)
         use_half = "16f" in bit_depth
         last = ""
@@ -416,7 +460,8 @@ class EXRSequenceSave:
             else:
                 _save_exr_frame(image[b].cpu().float().numpy(), last, use_half, compression)
         text = last + ("\n" + "\n".join(dict.fromkeys(notes)) if notes else "")
-        return {"ui": {"text": [text]}, "result": (image, last)}
+        info = json.dumps({"frames": image.shape[0], "last_path": last.replace("\\", "/"), "notes": notes}, indent=2)
+        return {"ui": {"text": [text]}, "result": (image, last, info)}
 
 
 def _exact_rate(fps: float):
