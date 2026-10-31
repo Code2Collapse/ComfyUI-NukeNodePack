@@ -227,6 +227,10 @@ ComfyUI with this pack and fails on an import failure, no registered node, or a 
 - NkScript (Ctrl+Shift+C / V, NkScript Parse / Serialize) reads braced values as Nuke does: numbers are a list, words are text. It also took over ComfyUI-CustomNodePacks' TCL Parse / Serialize: saved ones load as the NkScript nodes.
 - EXR Sequence Read / Write took over ComfyUI-CustomNodePacks' Load / Save EXR: `single_file` on Read and `file_path` on Write run that engine unchanged. That is OpenImageIO first, named AOV channels, compression, metadata, an alpha channel and an `info_json` output. Saved ones load as these nodes and write the same files (only OpenImageIO's write time stamp differs).
 
+## Example workflow
+
+`example_workflows/master_workflow.json`: EXR plate -> optical flow -> clean plate -> stabilise -> grain match -> EXR write. It uses only ComfyUI core and NukeMax nodes (EXR Sequence Read / Write), so it loads without any other pack (re-saved 2026-10-31; it used to need ComfyUI-CustomNodePacks' old Load / Save EXR).
+
 ## License
 
 GPL-3.0 (see `LICENSE`).
