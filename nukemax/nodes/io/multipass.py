@@ -141,7 +141,11 @@ class NukeMax_ShufflePass:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "passes": ("NUKE_PASSES",),
+                # L9.91: also CustomNodePacks' Load Video (C2C) exr_passes - a LAZY bundle of every EXR layer over the
+                # loaded frames (protocol c2c_type "C2C_EXR_PASSES"; checked by that field, never by class)
+                "passes": ("NUKE_PASSES,C2C_EXR_PASSES", {
+                    "tooltip": "Read MultiPass's bundle (one frame), or Load Video (C2C)'s exr_passes (every "
+                               "loaded frame of the layer)."}),
                 "pass_name": (
                     "STRING",
                     {
@@ -176,6 +180,8 @@ class NukeMax_ShufflePass:
         }
 
     def execute(self, passes, pass_name, channel_mode="auto", on_missing="black"):
+        if getattr(passes, "c2c_type", None) == "C2C_EXR_PASSES":
+            return self._from_c2c(passes, pass_name, channel_mode, on_missing)
         if not isinstance(passes, NukePasses) or not passes.passes:
             msg = "Empty passes bundle"
             logger.warning("[NukeMax_ShufflePass] %s", msg)
@@ -205,6 +211,34 @@ class NukeMax_ShufflePass:
         )
         logger.info("[NukeMax_ShufflePass] %s", info)
 
+        return (img, info)
+
+    @staticmethod
+    def _from_c2c(passes, pass_name, channel_mode="auto", on_missing="black"):
+        """Load Video (C2C)'s lazy C2C_EXR_PASSES (L9.91): the named layer for every loaded frame, as an IMAGE batch.
+        Layer names are matched case-insensitively ("RGBA" finds "rgba"). Values stay raw (float, unclamped)."""
+        name = str(pass_name or "").strip()
+        layers = list(passes.layers())
+        match = name if name in layers else next((k for k in layers if k.lower() == name.lower()), None)
+        if match is None:
+            msg = f"Pass '{name}' not found. Available: {', '.join(layers) or 'none (the source is not an EXR)'}"
+            logger.warning("[NukeMax_ShufflePass] %s", msg)
+            if on_missing == "error":
+                raise ValueError(msg)
+            n = max(1, len(passes))
+            return (torch.zeros((n, 64, 64, 3)), msg)
+        arr = torch.from_numpy(passes.read(match)).float()          # [N, H, W, 3 or 4]
+        if channel_mode == "single_to_rgb":
+            img = arr[..., :1].repeat(1, 1, 1, 3)
+        elif channel_mode == "rgb":
+            img = arr[..., :3]
+        elif channel_mode == "rgba":
+            img = arr if arr.shape[-1] == 4 else torch.cat([arr[..., :3], torch.ones_like(arr[..., :1])], dim=-1)
+        else:
+            img = arr
+        info = (f"Pass '{match}' ({passes.kind(match)}): {img.shape[0]} frames, {img.shape[-1]}ch, "
+                f"{img.shape[2]}x{img.shape[1]}, range [{float(arr.min()):.3f}, {float(arr.max()):.3f}]")
+        logger.info("[NukeMax_ShufflePass] %s", info)
         return (img, info)
 
 

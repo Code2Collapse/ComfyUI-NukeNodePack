@@ -107,6 +107,13 @@ Organised by source file under `nukemax/nodes/`. Counts are exact; class names l
 - **Outputs:** IMAGE (with optional alpha / Z / multi-channel split), full EXR metadata dict.
 - **Use case:** read multi-channel EXRs from Nuke / Blender renders, ingest as IMAGE batches for diffusion preprocessing, write back round-trip with metadata preserved.
 
+**Shuffle Pass (NukeMax)** takes Read MultiPass's bundle (one frame), or CustomNodePacks' **Load Video (C2C)**
+`exr_passes`. That one is a lazy bundle of every EXR layer over all the loaded frames, so Shuffle Pass gives the
+chosen layer (depth, N, diffuse, ...) for the whole selection:
+- raw float values, unclamped;
+- layer names matched case-insensitively;
+- a missing layer is black or refused, by `on_missing`.
+
 ### Render Passes (`passes/`) — 2 nodes
 
 `MergeRenderPassesMEC`, `DepthOfFieldMaskMEC`.
