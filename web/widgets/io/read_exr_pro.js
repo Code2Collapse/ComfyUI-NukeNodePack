@@ -25,6 +25,7 @@ const READERS = {
         sequenceMode: null,                              // 'auto' already reads a numbered frame's whole sequence
     },
 };
+READERS.NukeMax_OCIORead = READERS.NukeMax_Read;           // 19.10, slice 5b: the same file side
 
 async function refresh(node, pick) {
     const w = node.widgets?.find((x) => x.name === "file");
@@ -95,6 +96,7 @@ app.registerExtension({
             NukeMax_WriteEXRPro: "written files",
             NukeMax_Write: "written files",              // 19.8, slice 4b: the same confirmation
             NukeMax_OCIOConfigManager: "config summary", // 19.10, slice 5a: source, working space, missing LUTs
+            NukeMax_OCIOWrite: "written files",          // 19.10, slice 5b
         };
         if (BOXES[node.comfyClass]) {
             // a real read-only textarea (ComfyUI's multiline STRING widget): a LiteGraph "text" widget is one line and,

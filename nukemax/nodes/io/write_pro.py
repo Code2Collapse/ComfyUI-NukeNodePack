@@ -165,7 +165,10 @@ class NukeMax_Write:
     def execute(self, image, format="png", output_dir=DEFAULT_DIR, filename="shot", bit_depth="auto",
                 compression="auto", quality=90, frame_pattern=SW.PATTERNS[0], frame_start=1001, padding=4, fps=0.0,
                 versioning=VERSIONING[0], overwrite=False, sidecar=True, alpha=None, audio=None, metadata=None,
-                frame_numbers="", frame_range="", version=0, colour_space="", convert_from="", ocio_config=""):
+                frame_numbers="", frame_range="", version=0, colour_space="", convert_from="", ocio_config="",
+                manifest_extra=None):
+        # manifest_extra: facts a caller adds to the manifest sidecar (OCIO Write: config + spaces); Python only
+        self._extra = dict(manifest_extra or {})
         if image.ndim == 3:
             image = image.unsqueeze(0)
         n, h, w = int(image.shape[0]), int(image.shape[1]), int(image.shape[2])
@@ -190,7 +193,8 @@ class NukeMax_Write:
                 compression=_compression("exr", compression), versioning="new version folder (name_v###)"
                 if versioning == VERSIONING[0] else "none (plain names)", overwrite=overwrite, sidecar=sidecar,
                 metadata=metadata, frame_numbers=", ".join(str(frames[i]) for i in keep), version=version,
-                colour_space=colour_space, convert_from=convert_from, ocio_config=ocio_config, fps=fps)
+                colour_space=colour_space, convert_from=convert_from, ocio_config=ocio_config, fps=fps,
+                manifest_extra=self._extra)
             return res
         image = image[keep]
         frames = [frames[i] for i in keep]
@@ -283,6 +287,7 @@ class NukeMax_Write:
                                                                 "quality": int(quality) if fmt == "jpeg" else None,
                                                                 "alpha": alpha is not None}, rate, cs_out, cs_in,
                                  report, SW.pattern_text(target.stem, padding, frame_pattern, ext))
+            man.update(getattr(self, "_extra", {}))
             text = json.dumps(man, indent=2)
             target.write_manifest(text)
             target.commit()
@@ -343,6 +348,7 @@ class NukeMax_Write:
                     "audio": {"sample_rate": sr, "channels": min(2, ch), "seconds": round(wave.shape[-1] / sr, 4)}
                     if wave is not None else None, "ten_bit": wr.ten_bit}
             man = self._manifest(target, label, frames, (w, h), info, rate, cs_out, cs_in, report, fname)
+            man.update(getattr(self, "_extra", {}))
             text = json.dumps(man, indent=2)
             target.write_manifest(text)
             target.commit()

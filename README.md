@@ -378,6 +378,22 @@ node says so on its `config` field.
 
 All NukeMax OCIO nodes now load configs through this one cache.
 
+## NukeMax OCIO Read / OCIO Write (2026-11-02)
+
+Colour-managed I/O on NukeMax Read / Write and the OCIO Config Manager (Part 19.10).
+
+- **OCIO Read** reads stills, sequences and video into the working space.
+  - The source space is, in order: what you type; a space the file itself declares (NukeMax's own tag, or an EXR's
+    colour space); or the config's file rules. The metadata says which one was used.
+  - The working space is the one you type, or the config's `scene_linear` role.
+  - Alpha is kept. Passes stay as stored, and the metadata says so.
+  - The native `video` output carries the clip in its source space with its sound, for ComfyUI's own video nodes.
+- **OCIO Write** writes an IMAGE or a native VIDEO (its frames, sound, rate and alpha).
+  - It converts from the working space (or the input space you type) to the output space you type, or else to the
+    config's file rule for that format. Then NukeMax Write writes it.
+  - The config, both spaces and how each was chosen are recorded in the manifest sidecar.
+- Measured live: an sRGB PNG read into ACEScg and written back matches the source to within 6e-8.
+
 ## Fixes 2026-11-02 (status line)
 
 - A NukeMax node with no preview kept "running…" after the run. It now shows how long it ran.

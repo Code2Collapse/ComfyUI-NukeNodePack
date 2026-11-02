@@ -200,7 +200,7 @@ class NukeMax_WriteEXRPro:
                 padding=4, bit_depth=BIT_DEPTHS[0], compression="zip", layout=LAYOUTS[0], versioning=VERSIONING[0],
                 overwrite=False, sidecar=True, alpha=None, passes=None, metadata=None, frame_numbers="", version=0,
                 passes_to_write="", data_passes_float=True, alpha_mode=ALPHA_MODES[0], colour_space="",
-                convert_from="", ocio_config="", fps=0.0, embed_metadata=METADATA_MODES[0]):
+                convert_from="", ocio_config="", fps=0.0, embed_metadata=METADATA_MODES[0], manifest_extra=None):
         oiio = _oiio()
         if image.ndim == 3:
             image = image.unsqueeze(0)
@@ -309,6 +309,7 @@ class NukeMax_WriteEXRPro:
                    "converted": converted, "alpha": None if a is None else alpha_mode,
                    "fps": f"{rate.numerator}/{rate.denominator}" if rate else None, "source": source,
                    "half_overflow": report["half_overflow"], "nan": report["nan"], "overwrite": bool(overwrite)}
+            man.update(manifest_extra or {})                    # a caller's facts (OCIO Write), Python only
             man["files"] = [{"file": f, "frame": fr, "bytes": os.path.getsize(target.current(f)),
                              "sha256": _sha256(target.current(f))} for f, fr in zip(files, frames)]
             text = json.dumps(man, indent=2)
