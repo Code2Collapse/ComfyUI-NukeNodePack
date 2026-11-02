@@ -253,3 +253,27 @@ family.
 kept equal by the workspace sync and the pre-push gate. NukeMax's coming Read EXR Pro and the readers after it use it
 for EXR, sequences, passes and safe server paths, the same engine as Load Video (C2C) and the MiniMax Suite (Rev 3
 Part 19). Nothing changes for existing nodes. See `nukemax/vendor/VENDORED.md` and `NOTICE.md`.
+
+## NukeMax Read EXR Pro (2026-11-02)
+
+A production EXR reader (Rev 3 Part 19.4), not a typed path.
+
+**Picking the file**
+- *Upload EXR…*: one file, or every frame of a sequence (multi-select). The content is checked (EXR magic number),
+  the name is cleaned, and the file is stored in `input/nukemax_exr/`. An identical file is reused; a different one
+  with the same name is kept beside it, never overwritten.
+- `mode`: *file*, *sequence* (the whole sequence from any one of its frames, with `frame_range` such as
+  `1001-1100`), or *server path*. A server path is held to the C2C media roots when other machines can reach this
+  server.
+- `layer`: `auto` (RGB(A)) or a layer name.
+
+**Outputs**
+- scene-linear float, never clamped;
+- the alpha as a MASK;
+- every layer as `passes` for NukeMax Shuffle Pass;
+- `metadata`: header, layers, sequence and value range;
+- a preview made on the server, since browsers do not show EXR.
+
+A changed file or sequence member re-runs the node.
+
+It runs on the vendored C2C media engine, so it reads EXR exactly as Load Video (C2C) does.

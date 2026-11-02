@@ -141,3 +141,6 @@ PyTorch and OpenCV algorithms. No code is copied from proprietary sources.
 Apache-2.0; licence text in `nukemax/vendor/c2c_core-LICENSE.txt`). It is the media engine: lazy video and EXR
 sequence handles, the probe, the window reader and EXR passes. Apache-2.0 code may be included in this GPL-3.0-only
 pack. See `nukemax/vendor/VENDORED.md`.
+
+`nukemax/nodes/io/_media_roots.py` is ported from ComfyUI-CustomNodePacks `nodes/c2c_video/media_roots.py`
+(Code2Collapse, Apache-2.0, same author), so the server-path rule is the same for every C2C pack.
