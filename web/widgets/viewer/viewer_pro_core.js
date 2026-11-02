@@ -133,3 +133,175 @@ export class LRU {
     get size() { return this.map.size; }
     clear() { this.map.clear(); }
 }
+
+// ---- 7b: measurements (scopes, statistics, false colour, zebra, focus peaking) --------------------------------------
+// All of them read the proxy and the view settings; none writes the source.
+
+/** What the eye sees: linear x gain x 2^exposure -> display transform -> viewer gamma, as 0..1 (not clipped above). */
+export function encode(v, o) {
+    const k = (o.gain ?? 1) * Math.pow(2, o.exposure ?? 0);
+    let x = (o.display === "raw") ? Math.max(0, v * k) : srgbEncode(v * k);
+    const g = Math.max(0.01, o.gamma ?? 1);
+    if (g !== 1 && x > 0) x = Math.pow(x, 1 / g);
+    return x;
+}
+
+/** False-colour bands, in stops from 18 % grey (scene-linear luma): [upper bound, rgb, label]. */
+export const FALSE_BANDS = [
+    [-6, [80, 0, 120], "below -6 stops"], [-4, [40, 70, 210], "-6 to -4"], [-2, [0, 150, 170], "-4 to -2"],
+    [-0.5, [100, 120, 100], "-2 to -0.5"], [0.5, [60, 200, 70], "18 % grey ±0.5"], [2, [200, 200, 200], "+0.5 to +2"],
+    [3, [240, 225, 60], "+2 to +3"], [4, [250, 140, 30], "+3 to +4"], [Infinity, [235, 40, 40], "above +4 stops"],
+];
+
+export function stopsOf(l) {
+    return l > 0 ? Math.log2(l / 0.18) : -Infinity;
+}
+
+export function falseColour(l) {
+    const s = stopsOf(l);
+    for (const [hi, rgb] of FALSE_BANDS) if (s < hi) return rgb;
+    return FALSE_BANDS[FALSE_BANDS.length - 1][1];
+}
+
+/**
+ * One pass over the frame: histograms of the DISPLAYED values (r g b luma, 256 bins), the scene-linear luma in stops
+ * (-8 .. +8 around 18 % grey, 0.5-stop bins: the exposure distribution) and raw statistics of the DATA (no view
+ * adjustment): min / max / mean per channel, peak luma and its stops, pixels above 1.0 and below 0.
+ */
+export function measure(src, w, h, o) {
+    const n = w * h;
+    const hist = { r: new Uint32Array(256), g: new Uint32Array(256), b: new Uint32Array(256), l: new Uint32Array(256) };
+    const stops = new Uint32Array(33);
+    const min = [Infinity, Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity, -Infinity];
+    const sum = [0, 0, 0, 0];
+    let peak = -Infinity, above1 = 0, negative = 0;
+    const bin = (v) => Math.max(0, Math.min(255, Math.round(v * 255)));
+    for (let i = 0, p = 0; i < n; i++, p += 4) {
+        const r = src[p], g = src[p + 1], b = src[p + 2], a = src[p + 3];
+        const vals = [r, g, b, a];
+        for (let c = 0; c < 4; c++) {
+            const v = vals[c];
+            if (v < min[c]) min[c] = v;
+            if (v > max[c]) max[c] = v;
+            sum[c] += v;
+        }
+        if (r > 1 || g > 1 || b > 1) above1++;
+        if (r < 0 || g < 0 || b < 0) negative++;
+        const l = LUMA[0] * r + LUMA[1] * g + LUMA[2] * b;
+        if (l > peak) peak = l;
+        hist.r[bin(encode(r, o))]++; hist.g[bin(encode(g, o))]++; hist.b[bin(encode(b, o))]++; hist.l[bin(encode(l, o))]++;
+        const s = stopsOf(l);
+        stops[Number.isFinite(s) ? Math.max(0, Math.min(32, Math.round((s + 8) * 2))) : 0]++;
+    }
+    return {
+        hist, stops, pixels: n,
+        stats: { min, max, mean: sum.map((x) => x / Math.max(1, n)), peakLuma: peak, peakStops: stopsOf(peak),
+                 above1, negative },
+    };
+}
+
+/** Waveform image (W x H RGBA): luma, or an RGB parade (three side-by-side waveforms). */
+export function waveform(src, w, h, o, W, H, mode = "luma") {
+    const acc = new Float32Array(W * H * 3);
+    const parade = mode === "parade";
+    const colW = parade ? Math.floor(W / 3) : W;
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const p = (y * w + x) * 4;
+            if (parade) {
+                for (let c = 0; c < 3; c++) {
+                    const X = c * colW + Math.min(colW - 1, Math.floor(x * colW / w));
+                    const Y = H - 1 - Math.max(0, Math.min(H - 1, Math.round(Math.min(1, encode(src[p + c], o)) * (H - 1))));
+                    acc[(Y * W + X) * 3 + c] += 1;
+                }
+            } else {
+                const l = LUMA[0] * src[p] + LUMA[1] * src[p + 1] + LUMA[2] * src[p + 2];
+                const X = Math.min(W - 1, Math.floor(x * W / w));
+                const Y = H - 1 - Math.max(0, Math.min(H - 1, Math.round(Math.min(1, encode(l, o)) * (H - 1))));
+                const q = (Y * W + X) * 3;
+                acc[q] += 1; acc[q + 1] += 1; acc[q + 2] += 1;
+            }
+        }
+    }
+    return glow(acc, W, H, h);
+}
+
+/** Vectorscope image (S x S RGBA): Rec.709 Cb / Cr of the displayed colour, 75 % of the radius = full saturation. */
+export function vectorscope(src, w, h, o, S) {
+    const acc = new Float32Array(S * S * 3);
+    const c0 = S / 2, rad = S * 0.45;
+    for (let i = 0, p = 0; i < w * h; i++, p += 4) {
+        const r = Math.min(1, encode(src[p], o)), g = Math.min(1, encode(src[p + 1], o)), b = Math.min(1, encode(src[p + 2], o));
+        const y = LUMA[0] * r + LUMA[1] * g + LUMA[2] * b;
+        const cb = (b - y) / 1.8556, cr = (r - y) / 1.5748;
+        const X = Math.round(c0 + cb * 2 * rad), Y = Math.round(c0 - cr * 2 * rad);
+        if (X < 0 || Y < 0 || X >= S || Y >= S) continue;
+        const q = (Y * S + X) * 3;
+        acc[q] += r; acc[q + 1] += g; acc[q + 2] += b;
+    }
+    return glow(acc, S, S, Math.sqrt(w * h) / 4);
+}
+
+function glow(acc, W, H, norm) {
+    const out = new Uint8ClampedArray(W * H * 4);
+    const k = 255 / Math.max(1, Math.log1p(norm));
+    for (let i = 0; i < W * H; i++) {
+        out[i * 4] = Math.log1p(acc[i * 3]) * k;
+        out[i * 4 + 1] = Math.log1p(acc[i * 3 + 1]) * k;
+        out[i * 4 + 2] = Math.log1p(acc[i * 3 + 2]) * k;
+        out[i * 4 + 3] = 255;
+    }
+    return out;
+}
+
+/**
+ * Overlays on the DISPLAYED buffer ``dst`` (in place - the source is untouched):
+ *  falseColour: every pixel in its stops band; zebra: diagonal stripes where the displayed value reaches o.zebra
+ *  (default 0.95); peaking: green where the displayed luma's Sobel edge is above o.peaking (default 0.15).
+ */
+export function overlays(src, w, h, o, dst) {
+    if (o.falseColour) {
+        for (let i = 0, p = 0; i < w * h; i++, p += 4) {
+            const c = falseColour(LUMA[0] * src[p] + LUMA[1] * src[p + 1] + LUMA[2] * src[p + 2]);
+            dst[p] = c[0]; dst[p + 1] = c[1]; dst[p + 2] = c[2];
+        }
+    }
+    if (o.zebraOn) {
+        const t = o.zebra ?? 0.95;
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const p = (y * w + x) * 4;
+                const m = Math.max(encode(src[p], o), encode(src[p + 1], o), encode(src[p + 2], o));
+                if (m >= t && ((x + y) >> 2) & 1) { dst[p] = 255; dst[p + 1] = 0; dst[p + 2] = 255; }
+            }
+        }
+    }
+    if (o.peakingOn) {
+        const t = o.peaking ?? 0.15;
+        const L = new Float32Array(w * h);
+        for (let i = 0, p = 0; i < w * h; i++, p += 4) L[i] = Math.min(1, encode(LUMA[0] * src[p] + LUMA[1] * src[p + 1] + LUMA[2] * src[p + 2], o));
+        // o.peakingWidth (>= 0): marks are widened by that many proxy pixels, so a one-pixel edge survives a view drawn
+        // below 100 % (a smoothed downscale blended it away - L9.80 slice 7b, live)
+        const rad = Math.max(0, Math.round(o.peakingWidth || 0));
+        const mark = new Uint8Array(w * h);
+        for (let y = 1; y < h - 1; y++) {
+            for (let x = 1; x < w - 1; x++) {
+                const i = y * w + x;
+                const gx = -L[i - w - 1] - 2 * L[i - 1] - L[i + w - 1] + L[i - w + 1] + 2 * L[i + 1] + L[i + w + 1];
+                const gy = -L[i - w - 1] - 2 * L[i - w] - L[i - w + 1] + L[i + w - 1] + 2 * L[i + w] + L[i + w + 1];
+                if (Math.hypot(gx, gy) / 4 > t) {
+                    for (let dy = -rad; dy <= rad; dy++) {
+                        const yy = y + dy;
+                        if (yy < 0 || yy >= h) continue;
+                        for (let dx = -rad; dx <= rad; dx++) {
+                            const xx = x + dx;
+                            if (xx >= 0 && xx < w) mark[yy * w + xx] = 1;
+                        }
+                    }
+                }
+            }
+        }
+        for (let i = 0; i < w * h; i++) if (mark[i]) { const p = i * 4; dst[p] = 40; dst[p + 1] = 255; dst[p + 2] = 60; }
+    }
+    return dst;
+}

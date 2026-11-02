@@ -433,7 +433,15 @@ node's inputs and turns `apply_view_adjustment` on. The panel says VIEW ONLY or 
     folder.
   - A disk budget (`NUKEMAX_VIEWER_CACHE_MB`, default 2048) removes the oldest stores first.
   - The browser keeps at most 64 frames.
-- Scopes, false colour, A/B compare, audio and the OCIO display / view player are the next steps.
+- **Measure** (all of it view only):
+  - Scopes: histogram, luma waveform, RGB parade, vectorscope, and the exposure distribution in stops from 18 % grey.
+    Opening a scope makes room for it instead of shrinking the picture.
+  - **False colour:** scene-linear luma in stops, nine bands, legend shown.
+  - **Zebra:** stripes where the displayed value reaches 95 %.
+  - **Focus peaking:** marks stay visible below 100 %.
+  - **Shift-drag** a region: exact full-resolution min / max / mean, and the pixels above 1.0 and below 0.
+  - Under the picture: peak luma, its stops over 18 % grey, the share above 1.0 and below 0, and the mean.
+- A/B compare, audio and the OCIO display / view player are the next step.
 
 The older **Viewer (NukeMax)** is unchanged: its output carries its gain / gamma / channel. Use Viewer Pro when the
 output must stay the input.

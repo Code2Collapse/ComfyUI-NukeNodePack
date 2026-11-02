@@ -10,9 +10,21 @@
 
 import { app } from "../../../../scripts/app.js";
 import { cssVar } from "../_nukemax_theme.js";
-import { CHANNELS, LRU, actual, defaults, fit, fmt, halfToFloat, renderView, timecode, toImage, zoomAt } from "./viewer_pro_core.js";
+import {
+    CHANNELS, FALSE_BANDS, LRU, actual, defaults, fit, fmt, halfToFloat, measure, overlays, renderView, timecode, toImage,
+    vectorscope, waveform, zoomAt,
+} from "./viewer_pro_core.js";
 
 const TYPE = "NukeMax_ViewerPro";
+
+/** Nodes 2.0 sizes a node from its content: an explicit setSize there only adds blank space under the widgets. */
+function vueNodes() {
+    try {
+        return !!(app.extensionManager?.setting?.get?.("Comfy.VueNodes.Enabled") ?? app.ui?.settings?.getSettingValue?.("Comfy.VueNodes.Enabled"));
+    } catch (e) {
+        return false;
+    }
+}
 const PROP = "nukemax_viewer_pro";
 const STYLE_ID = "nukemax-viewer-pro-v1";
 const CSS = `
@@ -45,6 +57,12 @@ const CSS = `
   white-space:nowrap; }
 .nmvp-badge.view { color:${cssVar("ok")}; } .nmvp-badge.applied { color:${cssVar("warn")};
   border-color:${cssVar("warn")}; }
+.nmvp-scope { position:relative; flex:none; height:118px; border-radius:4px; overflow:hidden;
+  background:#0b0b0e; border:1px solid ${cssVar("border")}; }
+.nmvp-scope canvas { position:absolute; inset:0; width:100%; height:100%; }
+.nmvp-legend { display:flex; gap:2px; flex-wrap:wrap; flex:none; }
+.nmvp-legend span { padding:0 4px; border-radius:3px; font-size:9px; color:#111; }
+.nmvp-region { position:absolute; border:1px dashed #ffd166; pointer-events:none; display:none; }
 .nmvp-info { color:${cssVar("dim")}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;
   flex:1 1 auto; }
 `;
@@ -124,6 +142,20 @@ class ViewerPro {
         this.displaySel.addEventListener("change", () => this.setO({ display: this.displaySel.value }));
         this.displaySel.addEventListener("pointerdown", (e) => e.stopPropagation());
         r1.append(this.checkerBtn, this.displaySel);
+        // 7b: scopes and measuring overlays (all view only)
+        const rt = el("div", "nmvp-row");
+        this.scopeSel = el("select");
+        for (const [v, t] of [["none", "no scope"], ["histogram", "histogram"], ["waveform", "luma waveform"],
+            ["parade", "RGB parade"], ["vectorscope", "vectorscope"], ["stops", "exposure (stops)"]]) {
+            this.scopeSel.append(Object.assign(el("option", "", t), { value: v }));
+        }
+        this.scopeSel.title = "Scope of the frame as displayed (exposure and display transform included)";
+        this.scopeSel.addEventListener("change", () => this.setO({ scope: this.scopeSel.value }));
+        this.scopeSel.addEventListener("pointerdown", (e) => e.stopPropagation());
+        this.fcBtn = btn("False colour", "Scene-linear luma in stops from 18 % grey", () => this.setO({ falseColour: !this.o.falseColour }));
+        this.zebraBtn = btn("Zebra", "Stripes where the displayed value reaches 95 %", () => this.setO({ zebraOn: !this.o.zebraOn }));
+        this.peakBtn = btn("Peaking", "Focus peaking: displayed edges in green", () => this.setO({ peakingOn: !this.o.peakingOn }));
+        rt.append(this.scopeSel, this.fcBtn, this.zebraBtn, this.peakBtn);
         // row 2: view exposure / gamma / gain (view only) + apply
         const r2 = el("div", "nmvp-row");
         this.sExp = slider("exp", -10, 10, 0.1, () => this.o.exposure, (v) => this.setO({ exposure: v }, false));
@@ -155,7 +187,8 @@ class ViewerPro {
         this.probe = el("div", "nmvp-probe");
         this.zoomLbl = el("div", "nmvp-zoom");
         this.empty = el("div", "nmvp-empty", "Run the graph to view the image.");
-        view.append(this.canvas, this.probe, this.zoomLbl, this.empty);
+        this.regionEl = el("div", "nmvp-region");
+        view.append(this.canvas, this.regionEl, this.probe, this.zoomLbl, this.empty);
         this.wireView();
         // transport
         const r3 = el("div", "nmvp-row");
@@ -174,8 +207,30 @@ class ViewerPro {
         r4.append(this.time);
         const r5 = el("div", "nmvp-row");
         r5.append(this.info);
-        root.append(r1, r2, r2b, view, r3, r4, r5);
+        this.scopeBox = el("div", "nmvp-scope");
+        this.scopeCanvas = document.createElement("canvas");
+        this.scopeBox.append(this.scopeCanvas);
+        this.legend = el("div", "nmvp-legend");
+        for (const [, rgb, label] of FALSE_BANDS) {
+            const sp = el("span", "", label);
+            sp.style.background = `rgb(${rgb.join(",")})`;
+            this.legend.append(sp);
+        }
+        this.meas = el("div", "nmvp-info");
+        const r6 = el("div", "nmvp-row");
+        r6.append(this.meas);
+        root.append(r1, rt, r2, r2b, view, this.legend, this.scopeBox, r3, r4, r5, r6);
         new ResizeObserver(() => this.redraw()).observe(view);
+        // Nodes 2.0 gives the widget container its min height but no explicit height, so height:100% resolved to the
+        // content and left the rest empty under the panel: follow the container's real height instead
+        const follow = () => {
+            const par = root.parentElement;
+            if (!par) return;
+            const h = par.clientHeight;
+            if (h > 0 && Math.abs(root.offsetHeight - h) > 2) root.style.height = `${h}px`;
+        };
+        new ResizeObserver(follow).observe(root);
+        requestAnimationFrame(() => { if (root.parentElement) new ResizeObserver(follow).observe(root.parentElement); follow(); });
         this.paint();
     }
 
@@ -191,7 +246,8 @@ class ViewerPro {
         v.addEventListener("pointerdown", (e) => {
             e.stopPropagation();
             v.focus({ preventScroll: true });
-            drag = { x: e.clientX, y: e.clientY, moved: false, vx: this.view?.x, vy: this.view?.y };
+            drag = { x: e.clientX, y: e.clientY, moved: false, vx: this.view?.x, vy: this.view?.y, region: e.shiftKey };
+            if (!e.shiftKey) this.regionEl.style.display = "none";           // a plain click clears the region box
             v.setPointerCapture?.(e.pointerId);
         });
         v.addEventListener("pointermove", (e) => {
@@ -199,13 +255,22 @@ class ViewerPro {
             if (drag && this.view) {
                 const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
                 if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+                if (drag.moved && drag.region) {
+                    const r0 = v.getBoundingClientRect();
+                    const x0 = Math.min(drag.x, e.clientX) - r0.left, y0 = Math.min(drag.y, e.clientY) - r0.top;
+                    Object.assign(this.regionEl.style, { display: "block", left: `${x0}px`, top: `${y0}px`,
+                        width: `${Math.abs(dx)}px`, height: `${Math.abs(dy)}px` });
+                    return;
+                }
                 if (drag.moved) { this.autoFit = false; this.view.x = drag.vx + dx; this.view.y = drag.vy + dy; this.redraw(); return; }
             }
             this.hover(e.clientX - r.left, e.clientY - r.top);
         });
         v.addEventListener("pointerup", (e) => {
             const r = v.getBoundingClientRect();
-            if (drag && !drag.moved) this.sampleAt(e.clientX - r.left, e.clientY - r.top);
+            if (drag && drag.region && drag.moved) {
+                this.sampleRegion(drag.x - r.left, drag.y - r.top, e.clientX - r.left, e.clientY - r.top);
+            } else if (drag && !drag.moved) this.sampleAt(e.clientX - r.left, e.clientY - r.top);
             drag = null;
         });
         v.addEventListener("dblclick", (e) => { e.stopPropagation(); this.fitView(); });
@@ -223,6 +288,20 @@ class ViewerPro {
         this.checkerBtn.setAttribute("aria-pressed", String(!!this.o.checker));
         this.loopBtn.setAttribute("aria-pressed", String(this.loop));
         this.displaySel.value = this.o.display;
+        this.scopeSel.value = this.o.scope || "none";
+        this.fcBtn.setAttribute("aria-pressed", String(!!this.o.falseColour));
+        this.zebraBtn.setAttribute("aria-pressed", String(!!this.o.zebraOn));
+        this.peakBtn.setAttribute("aria-pressed", String(!!this.o.peakingOn));
+        const scopeOn = !!(this.o.scope && this.o.scope !== "none");
+        this.scopeBox.style.display = scopeOn ? "" : "none";
+        // a scope must not shrink the picture: the node grows by the scope's height when it opens
+        if (scopeOn !== this.scopeWasOn) {
+            this.scopeWasOn = scopeOn;
+            this.scopeExtra = scopeOn ? 122 : 0;                              // read by the widget's getMinHeight
+            const n = this.node;
+            if (scopeOn && n?.size && !vueNodes()) requestAnimationFrame(() => n.setSize?.([n.size[0], Math.max(n.size[1], n.computeSize()[1])]));
+        }
+        this.legend.style.display = this.o.falseColour ? "" : "none";
         this.sExp.show(); this.sGam.show(); this.sGain.show();
         const applied = !!this.widget("apply_view_adjustment")?.value;
         this.badge.textContent = applied ? "APPLIED" : "VIEW ONLY";
@@ -367,6 +446,10 @@ class ViewerPro {
             this.img = this.off.getContext("2d").createImageData(pw, ph);
         }
         renderView(this.cur, pw, ph, this.o, this.img.data);
+        if (this.o.falseColour || this.o.zebraOn || this.o.peakingOn) {
+            const shown = this.view.scale * (this.idx.a.width / pw) * (pw / this.idx.a.width);   // screen px per proxy px
+            overlays(this.cur, pw, ph, { ...this.o, peakingWidth: shown < 1 ? Math.ceil(1 / shown) - 1 : 0 }, this.img.data);
+        }
         this.off.getContext("2d").putImageData(this.img, 0, 0);
         const c = this.canvas;
         if (c.width !== bw || c.height !== bh) { c.width = bw; c.height = bh; }
@@ -375,6 +458,7 @@ class ViewerPro {
         g.imageSmoothingEnabled = this.view.scale * (this.idx.a.width / pw) < 1.0;
         g.drawImage(this.off, this.view.x, this.view.y, pw * this.view.scale, ph * this.view.scale);
         this.zoomLbl.textContent = `${Math.round(this.view.scale * (pw / this.idx.a.width) * 100)}%`;
+        this.drawScopes(pw, ph);
     }
 
     hover(px, py) {
@@ -387,6 +471,72 @@ class ViewerPro {
         const c = this.cur;
         this.probe.textContent = `${sx}, ${sy}  ~ R ${fmt(c[p])} G ${fmt(c[p + 1])} B ${fmt(c[p + 2])} A ${fmt(c[p + 3])}`
             + "\nclick: exact value";
+    }
+
+    drawScopes(pw, ph) {
+        const m = (this.lastMeasure = measure(this.cur, pw, ph, this.o));
+        const st = m.stats;
+        this.meas.textContent = this.meas.title = `peak luma ${fmt(st.peakLuma)} (${Number.isFinite(st.peakStops) ? (st.peakStops >= 0 ? "+" : "") + st.peakStops.toFixed(1) : "-"} stops over 18 % grey)`
+            + ` | > 1.0: ${(100 * st.above1 / m.pixels).toFixed(1)} % | < 0: ${(100 * st.negative / m.pixels).toFixed(1)} %`
+            + ` | mean R ${fmt(st.mean[0])} G ${fmt(st.mean[1])} B ${fmt(st.mean[2])}`;
+        const sc = this.o.scope;
+        if (!sc || sc === "none") return;
+        const box = this.scopeBox;
+        const W = Math.max(32, box.clientWidth), H = Math.max(32, box.clientHeight);
+        const c = this.scopeCanvas;
+        if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+        const g = c.getContext("2d");
+        g.fillStyle = "#0b0b0e"; g.fillRect(0, 0, W, H);
+        g.strokeStyle = "rgba(255,255,255,0.12)"; g.lineWidth = 1;
+        if (sc === "histogram" || sc === "stops") {
+            const series = sc === "stops" ? [[m.stops, "#9ad"]] : [[m.hist.r, "rgba(255,80,80,0.75)"], [m.hist.g, "rgba(80,255,80,0.75)"],
+                [m.hist.b, "rgba(90,140,255,0.75)"], [m.hist.l, "rgba(235,235,235,0.6)"]];
+            let top = 1;
+            for (const [h] of series) for (let i = 1; i < h.length - 1; i++) top = Math.max(top, h[i]);
+            for (const [h, col] of series) {
+                g.strokeStyle = col; g.beginPath();
+                for (let i = 0; i < h.length; i++) {
+                    const x = (i / (h.length - 1)) * (W - 1), y = H - 1 - Math.min(1, h[i] / top) * (H - 6);
+                    i ? g.lineTo(x, y) : g.moveTo(x, y);
+                }
+                g.stroke();
+            }
+            if (sc === "stops") {
+                g.fillStyle = "rgba(255,255,255,0.55)"; g.font = "9px monospace";
+                for (const s of [-8, -4, 0, 4, 8]) { const x = ((s + 8) / 16) * (W - 1); g.fillRect(x, 0, 1, H); g.fillText(`${s > 0 ? "+" : ""}${s}`, Math.min(W - 16, x + 2), 10); }
+            }
+            return;
+        }
+        const img = sc === "vectorscope" ? vectorscope(this.cur, pw, ph, this.o, Math.min(W, H))
+            : waveform(this.cur, pw, ph, this.o, W, H, sc === "parade" ? "parade" : "luma");
+        const S = sc === "vectorscope" ? Math.min(W, H) : 0;
+        const id = new ImageData(img, sc === "vectorscope" ? S : W, sc === "vectorscope" ? S : H);
+        g.putImageData(id, sc === "vectorscope" ? (W - S) / 2 : 0, 0);
+        g.strokeStyle = "rgba(255,255,255,0.18)";
+        if (sc === "vectorscope") {
+            g.beginPath(); g.arc(W / 2, S / 2, S * 0.45, 0, Math.PI * 2); g.stroke();
+            g.beginPath(); g.moveTo(W / 2 - S / 2, S / 2); g.lineTo(W / 2 + S / 2, S / 2); g.moveTo(W / 2, 0); g.lineTo(W / 2, S); g.stroke();
+        } else {
+            for (const f of [0.25, 0.5, 0.75]) { g.beginPath(); g.moveTo(0, H * (1 - f)); g.lineTo(W, H * (1 - f)); g.stroke(); }
+        }
+    }
+
+    async sampleRegion(ax, ay, bx, by) {
+        if (!this.view || !this.idx) return;
+        const [pw, ph] = this.idx.a.proxy;
+        const W = this.idx.a.width, H = this.idx.a.height;
+        const [x0, y0] = toImage(this.view, Math.min(ax, bx), Math.min(ay, by));
+        const [x1, y1] = toImage(this.view, Math.max(ax, bx), Math.max(ay, by));
+        const sx = Math.max(0, Math.floor(x0 * W / pw)), sy = Math.max(0, Math.floor(y0 * H / ph));
+        const ex = Math.min(W, Math.ceil(x1 * W / pw)), ey = Math.min(H, Math.ceil(y1 * H / ph));
+        if (ex <= sx || ey <= sy) return;
+        const r = await fetch(`/nukemax/viewer/sample?key=${encodeURIComponent(this.idx.key)}&i=${this.frame}&x=${sx}&y=${sy}&w=${ex - sx}&h=${ey - sy}`);
+        const j = await r.json();
+        if (!r.ok) { this.probe.textContent = j.error || "no sample"; return; }
+        this.lastRegion = j;
+        const mx = j.max || [], mn = j.min || [], me = j.mean || [];
+        this.probe.textContent = `region ${sx},${sy} ${ex - sx}x${ey - sy}  mean R ${fmt(me[0])} G ${fmt(me[1])} B ${fmt(me[2])}`
+            + `  max ${fmt(Math.max(mx[0], mx[1], mx[2]))} min ${fmt(Math.min(mn[0], mn[1], mn[2]))}  ${j.source}`;
     }
 
     async sampleAt(px, py) {
@@ -414,12 +564,12 @@ app.registerExtension({
         if (w) {
             w.serialize = false;                          // a display widget: never in widgets_values (L9.102)
             w.options = w.options || {};
-            w.options.getMinHeight = () => 380;
+            w.options.getMinHeight = () => 440 + (vp.scopeExtra || 0);   // + the scope's height while one is open (7b)
         }
         const minW = 460;
         const cs = node.computeSize;
         node.computeSize = function () { const s = cs ? cs.apply(this, arguments) : [minW, 400]; return [Math.max(minW, s[0]), s[1]]; };
-        requestAnimationFrame(() => node.setSize?.([Math.max(minW, node.size[0]), Math.max(node.size[1], node.computeSize()[1])]));
+        if (!vueNodes()) requestAnimationFrame(() => node.setSize?.([Math.max(minW, node.size[0]), Math.max(node.size[1], node.computeSize()[1])]));
         const prev = node.onExecuted;
         node.onExecuted = function (message) {
             prev?.apply(this, arguments);
