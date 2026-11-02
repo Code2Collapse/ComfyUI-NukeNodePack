@@ -52,6 +52,10 @@ export function renderView(src, w, h, o, out) {
         if (ig !== 1 && x > 0) x = Math.pow(x, ig);
         return x * 255 + 0.5;
     };
+    // 7c: an OCIO display / view (the OCIO Player) baked to a LUT behind a log2 shaper, applied to r g b together
+    const lut = o.display === "ocio" && o.lut ? o.lut : null;
+    const tmp = [0, 0, 0];
+    const gam8 = (x) => ((ig !== 1 && x > 0) ? Math.pow(x, ig) : x) * 255 + 0.5;
     for (let y = 0, p = 0; y < h; y++) {
         for (let x = 0; x < w; x++, p += 4) {
             let r = src[p] * k, g = src[p + 1] * k, b = src[p + 2] * k;
@@ -65,6 +69,11 @@ export function renderView(src, w, h, o, out) {
                 const bg = ((Math.floor(x / cell) + Math.floor(y / cell)) & 1) ? 0.35 : 0.18;
                 const t = (1 - (a > 0 ? a : 0)) * bg;
                 r += t; g += t; b += t;
+            }
+            if (lut) {
+                lutApply(lut, r, g, b, tmp);
+                dst[p] = gam8(tmp[0]); dst[p + 1] = gam8(tmp[1]); dst[p + 2] = gam8(tmp[2]); dst[p + 3] = 255;
+                continue;
             }
             dst[p] = to8(r); dst[p + 1] = to8(g); dst[p + 2] = to8(b); dst[p + 3] = 255;
         }
@@ -302,6 +311,73 @@ export function overlays(src, w, h, o, dst) {
             }
         }
         for (let i = 0; i < w * h; i++) if (mark[i]) { const p = i * 4; dst[p] = 40; dst[p + 1] = 255; dst[p + 2] = 60; }
+    }
+    return dst;
+}
+
+
+// ---- 7c: compare and the OCIO Player --------------------------------------------------------------------------------
+/** A display / view LUT ({size, lo, hi, data: Float32Array size^3 x 3, r major}) applied to linear r g b. */
+export function lutApply(lut, r, g, b, out = [0, 0, 0]) {
+    const n = lut.size, d = lut.data, span = lut.hi - lut.lo;
+    const coord = (v) => {
+        const st = v > 0 ? Math.log2(v / 0.18) : lut.lo;
+        return Math.max(0, Math.min(1, (st - lut.lo) / span)) * (n - 1);
+    };
+    const fr = coord(r), fg = coord(g), fb = coord(b);
+    const r0 = Math.min(n - 2, Math.floor(fr)), g0 = Math.min(n - 2, Math.floor(fg)), b0 = Math.min(n - 2, Math.floor(fb));
+    const tr = fr - r0, tg = fg - g0, tb = fb - b0;
+    for (let c = 0; c < 3; c++) {
+        const at = (i, j, k) => d[((i * n + j) * n + k) * 3 + c];
+        const c00 = at(r0, g0, b0) * (1 - tb) + at(r0, g0, b0 + 1) * tb;
+        const c01 = at(r0, g0 + 1, b0) * (1 - tb) + at(r0, g0 + 1, b0 + 1) * tb;
+        const c10 = at(r0 + 1, g0, b0) * (1 - tb) + at(r0 + 1, g0, b0 + 1) * tb;
+        const c11 = at(r0 + 1, g0 + 1, b0) * (1 - tb) + at(r0 + 1, g0 + 1, b0 + 1) * tb;
+        out[c] = (c00 * (1 - tg) + c01 * tg) * (1 - tr) + (c10 * (1 - tg) + c11 * tg) * tr;
+    }
+    return out;
+}
+
+/** |A - B| per channel (alpha 1), as linear data to view like an image. B is sampled to A's size. */
+export function difference(a, b, w, h, bw, bh) {
+    const out = new Float32Array(w * h * 4);
+    for (let y = 0; y < h; y++) {
+        const by = Math.min(bh - 1, Math.floor(y * bh / h));
+        for (let x = 0; x < w; x++) {
+            const bx = Math.min(bw - 1, Math.floor(x * bw / w));
+            const p = (y * w + x) * 4, q = (by * bw + bx) * 4;
+            out[p] = Math.abs(a[p] - b[q]); out[p + 1] = Math.abs(a[p + 1] - b[q + 1]); out[p + 2] = Math.abs(a[p + 2] - b[q + 2]);
+            out[p + 3] = 1;
+        }
+    }
+    return out;
+}
+
+/** The difference as a heatmap: luma of |A - B| over its own maximum, black -> blue -> green -> yellow -> red. */
+export function heatmap(diff, w, h, out) {
+    let top = 1e-9;
+    const n = w * h;
+    const L = new Float32Array(n);
+    for (let i = 0, p = 0; i < n; i++, p += 4) { L[i] = LUMA[0] * diff[p] + LUMA[1] * diff[p + 1] + LUMA[2] * diff[p + 2]; if (L[i] > top) top = L[i]; }
+    const stops = [[0, 0, 0], [0, 60, 255], [0, 220, 90], [255, 230, 0], [255, 30, 30]];
+    const dst = out || new Uint8ClampedArray(n * 4);
+    for (let i = 0; i < n; i++) {
+        const t = Math.min(1, L[i] / top) * (stops.length - 1);
+        const k = Math.min(stops.length - 2, Math.floor(t)), f = t - k;
+        for (let c = 0; c < 3; c++) dst[i * 4 + c] = stops[k][c] * (1 - f) + stops[k + 1][c] * f;
+        dst[i * 4 + 3] = 255;
+    }
+    return { image: dst, max: top };
+}
+
+/** Split: columns left of ``at`` (0..1 of the width) from A's display buffer, the rest from B's. */
+export function split(aBuf, bBuf, w, h, at, out) {
+    const dst = out || new Uint8ClampedArray(w * h * 4);
+    const cut = Math.round(Math.max(0, Math.min(1, at)) * w);
+    for (let y = 0; y < h; y++) {
+        const row = y * w * 4;
+        dst.set(aBuf.subarray(row, row + cut * 4), row);
+        dst.set(bBuf.subarray(row + cut * 4, row + w * 4), row + cut * 4);
     }
     return dst;
 }

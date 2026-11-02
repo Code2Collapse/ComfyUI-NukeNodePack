@@ -11,7 +11,8 @@
 import { app } from "../../../../scripts/app.js";
 import { cssVar } from "../_nukemax_theme.js";
 import {
-    CHANNELS, FALSE_BANDS, LRU, actual, defaults, fit, fmt, halfToFloat, measure, overlays, renderView, timecode, toImage,
+    CHANNELS, FALSE_BANDS, LRU, actual, defaults, difference, fit, fmt, halfToFloat, heatmap, measure, overlays,
+    renderView, timecode, toImage,
     vectorscope, waveform, zoomAt,
 } from "./viewer_pro_core.js";
 
@@ -34,6 +35,7 @@ const CSS = `
 .nmvp button, .nmvp select { height:20px; padding:0 6px; font:inherit; color:${cssVar("text")}; cursor:pointer;
   background:${cssVar("well")}; border:1px solid ${cssVar("border")}; border-radius:4px; }
 .nmvp button:hover { border-color:${cssVar("accent")}; }
+.nmvp select { max-width:132px; min-width:0; flex:0 1 auto; text-overflow:ellipsis; overflow:hidden; }
 .nmvp button[aria-pressed="true"] { border-color:${cssVar("accent")}; color:${cssVar("fg")};
   background:color-mix(in srgb, ${cssVar("accent")} 28%, ${cssVar("well")}); }
 .nmvp-num { display:flex; align-items:center; gap:3px; min-width:0; flex:1 1 0; }
@@ -63,6 +65,12 @@ const CSS = `
 .nmvp-legend { display:flex; gap:2px; flex-wrap:wrap; flex:none; }
 .nmvp-legend span { padding:0 4px; border-radius:3px; font-size:9px; color:#111; }
 .nmvp-region { position:absolute; border:1px dashed #ffd166; pointer-events:none; display:none; }
+.nmvp-insp { flex:none; color:${cssVar("dim")}; }
+.nmvp-insp summary { cursor:pointer; color:${cssVar("text")}; }
+.nmvp-insp-body { max-height:104px; overflow:auto; }
+.nmvp-insp table { border-collapse:collapse; width:100%; font:10px/1.35 monospace; }
+.nmvp-insp td { padding:1px 4px; vertical-align:top; border-top:1px solid ${cssVar("border")}; word-break:break-all; }
+.nmvp-insp td:first-child { color:${cssVar("text")}; white-space:nowrap; width:1%; }
 .nmvp-info { color:${cssVar("dim")}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;
   flex:1 1 auto; }
 `;
@@ -117,7 +125,8 @@ class ViewerPro {
 
     save() {
         this.node.properties = this.node.properties || {};
-        this.node.properties[PROP] = { ...this.o };
+        const { lut, ...keep } = this.o;                                 // the baked LUT is fetched, never saved
+        this.node.properties[PROP] = keep;
     }
 
     build() {
@@ -139,7 +148,8 @@ class ViewerPro {
         this.displaySel = el("select");
         for (const d of ["sRGB", "raw"]) this.displaySel.append(Object.assign(el("option", "", d), { value: d }));
         this.displaySel.title = "Display transform (OCIO display / view arrives with the OCIO Player)";
-        this.displaySel.addEventListener("change", () => this.setO({ display: this.displaySel.value }));
+        this.displaySel.addEventListener("change", () => { this.pickDisplay(this.displaySel.value);
+            this.displaySel.title = this.displaySel.selectedOptions[0]?.textContent || ""; });
         this.displaySel.addEventListener("pointerdown", (e) => e.stopPropagation());
         r1.append(this.checkerBtn, this.displaySel);
         // 7b: scopes and measuring overlays (all view only)
@@ -156,6 +166,23 @@ class ViewerPro {
         this.zebraBtn = btn("Zebra", "Stripes where the displayed value reaches 95 %", () => this.setO({ zebraOn: !this.o.zebraOn }));
         this.peakBtn = btn("Peaking", "Focus peaking: displayed edges in green", () => this.setO({ peakingOn: !this.o.peakingOn }));
         rt.append(this.scopeSel, this.fcBtn, this.zebraBtn, this.peakBtn);
+        // 7c: compare A / B, the EXR layer shown, sound
+        const rc = (this.compareRow = el("div", "nmvp-row"));
+        this.cmpSel = el("select");
+        for (const [v, t] of [["a", "A"], ["b", "B"], ["split", "A | B wipe"], ["difference", "difference"],
+            ["heatmap", "difference heatmap"], ["blink", "blink A / B"]]) {
+            this.cmpSel.append(Object.assign(el("option", "", t), { value: v }));
+        }
+        this.cmpSel.title = "Compare A with B (connect image_b)";
+        this.cmpSel.addEventListener("change", () => { this.setO({ compare: this.cmpSel.value }); this.show(this.frame); this.blink(); });
+        this.cmpSel.addEventListener("pointerdown", (e) => e.stopPropagation());
+        this.sWipe = slider("wipe", 0, 1, 0.01, () => this.o.wipe ?? 0.5, (v) => this.setO({ wipe: v }, false));
+        this.layerSel = el("select");
+        this.layerSel.title = "The EXR layer shown (connect Read EXR Pro's passes)";
+        this.layerSel.addEventListener("change", () => { this.setO({ layer: this.layerSel.value }); this.show(this.frame); });
+        this.layerSel.addEventListener("pointerdown", (e) => e.stopPropagation());
+        this.muteBtn = btn("🔊", "Sound on / off (a connected video or audio)", () => { this.setO({ mute: !this.o.mute }); this.syncAudio(); });
+        rc.append(this.cmpSel, this.sWipe.wrap, this.layerSel, this.muteBtn);
         // row 2: view exposure / gamma / gain (view only) + apply
         const r2 = el("div", "nmvp-row");
         this.sExp = slider("exp", -10, 10, 0.1, () => this.o.exposure, (v) => this.setO({ exposure: v }, false));
@@ -219,7 +246,17 @@ class ViewerPro {
         this.meas = el("div", "nmvp-info");
         const r6 = el("div", "nmvp-row");
         r6.append(this.meas);
-        root.append(r1, rt, r2, r2b, view, this.legend, this.scopeBox, r3, r4, r5, r6);
+        this.insp = el("details", "nmvp-insp");
+        this.insp.append(el("summary", "", "EXR inspector"));
+        this.inspBody = el("table");
+        // bounded and scrolled: expanded, it takes room from the view instead of spilling past the node (classic)
+        const inspWrap = el("div", "nmvp-insp-body");
+        inspWrap.append(this.inspBody);
+        inspWrap.addEventListener("wheel", (e) => e.stopPropagation(), { passive: true });
+        inspWrap.setAttribute("data-capture-wheel", "true");
+        this.insp.append(inspWrap);
+        this.insp.addEventListener("toggle", () => this.node.setDirtyCanvas?.(true, true));
+        root.append(r1, rt, rc, r2, r2b, view, this.legend, this.scopeBox, r3, r4, r5, r6, this.insp);
         new ResizeObserver(() => this.redraw()).observe(view);
         // Nodes 2.0 gives the widget container its min height but no explicit height, so height:100% resolved to the
         // content and left the rest empty under the panel: follow the container's real height instead
@@ -289,6 +326,15 @@ class ViewerPro {
         this.loopBtn.setAttribute("aria-pressed", String(this.loop));
         this.displaySel.value = this.o.display;
         this.scopeSel.value = this.o.scope || "none";
+        const hasB = !!this.idx?.b;
+        for (const op of this.cmpSel.options) op.disabled = op.value !== "a" && !hasB;
+        this.cmpSel.value = hasB ? (this.o.compare || "a") : "a";
+        this.sWipe.wrap.style.display = this.cmpSel.value === "split" ? "" : "none";
+        this.sWipe.show();
+        this.layerSel.style.display = (this.idx?.layers?.length) ? "" : "none";
+        this.muteBtn.style.display = this.idx?.audio ? "" : "none";
+        this.muteBtn.textContent = this.o.mute ? "🔇" : "🔊";
+        this.compareRow.style.display = (hasB || this.idx?.layers?.length || this.idx?.audio) ? "" : "none";
         this.fcBtn.setAttribute("aria-pressed", String(!!this.o.falseColour));
         this.zebraBtn.setAttribute("aria-pressed", String(!!this.o.zebraOn));
         this.peakBtn.setAttribute("aria-pressed", String(!!this.o.peakingOn));
@@ -333,18 +379,32 @@ class ViewerPro {
         this.scrub.max = String(Math.max(0, j.frames - 1));
         this.frame = Math.min(this.frame, j.frames - 1);
         this.view = null;
+        this.layerSel.replaceChildren(Object.assign(el("option", "", "beauty (A)"), { value: "a" }),
+            ...(j.layers || []).map((l) => Object.assign(el("option", "", `${l.key} (${l.kind || "layer"})`), { value: l.which })));
+        this.layerSel.value = (j.layers || []).some((l) => l.which === this.o.layer) ? this.o.layer : "a";
+        this.audioEl?.pause();
+        this.audioEl = j.audio ? new Audio(`/nukemax/viewer/audio?key=${encodeURIComponent(j.key)}`) : null;
+        this.fillInspector(j.inspector || {});
+        this.loadOcio();
         this.paint();
         await this.show(this.frame);
     }
 
-    async frameData(i) {
-        const hit = this.cache.get(i);
+    async frameData(i, which = "a") {
+        const ck = `${which}:${i}`;
+        const hit = this.cache.get(ck);
         if (hit) return hit;
-        const r = await fetch(`/nukemax/viewer/frame?key=${encodeURIComponent(this.idx.key)}&i=${i}&which=a`);
+        const r = await fetch(`/nukemax/viewer/frame?key=${encodeURIComponent(this.idx.key)}&i=${i}&which=${which}`);
         if (!r.ok) throw new Error((await r.json()).error || `frame ${i}`);
         const data = halfToFloat(new Uint16Array(await r.arrayBuffer()));
-        this.cache.set(i, data);
+        this.cache.set(ck, data);
         return data;
+    }
+
+    sideOf(which) {
+        if (which === "b") return this.idx.b;
+        if (which && which !== "a") return (this.idx.layers || []).find((l) => l.which === which) || this.idx.a;
+        return this.idx.a;
     }
 
     async show(i) {
@@ -353,7 +413,11 @@ class ViewerPro {
         this.frame = Math.max(0, Math.min(n - 1, i | 0));
         this.scrub.value = String(this.frame);
         try {
-            this.cur = await this.frameData(this.frame);
+            const lay = this.o.layer && (this.idx.layers || []).some((l) => l.which === this.o.layer) ? this.o.layer : "a";
+            this.curWhich = lay;
+            this.cur = await this.frameData(this.frame, lay);
+            const needB = this.idx.b && (this.o.compare || "a") !== "a";
+            this.curB = needB ? await this.frameData(Math.min(this.frame, this.idx.b.frames - 1), "b") : null;
         } catch (e) {
             this.empty.textContent = String(e.message || e);
             this.empty.style.display = "";
@@ -361,7 +425,8 @@ class ViewerPro {
         }
         this.redraw();
         this.updateTime();
-        for (let k = 1; k <= 3 && this.frame + k < n; k++) this.frameData(this.frame + k).catch(() => {});
+        if (!this.playing) this.syncAudio();
+        for (let k = 1; k <= 3 && this.frame + k < n; k++) this.frameData(this.frame + k, this.curWhich || "a").catch(() => {});
     }
 
     step(d) {
@@ -383,11 +448,13 @@ class ViewerPro {
             this.step(1);
         }, 1000 / fps);
         this.paint();
+        this.syncAudio(true);
     }
 
     stop() {
         if (this.playing) clearInterval(this.playing);
         this.playing = null;
+        this.audioEl?.pause();
         if (this.playBtn) this.paint();
     }
 
@@ -445,8 +512,13 @@ class ViewerPro {
             this.off = Object.assign(document.createElement("canvas"), { width: pw, height: ph });
             this.img = this.off.getContext("2d").createImageData(pw, ph);
         }
-        renderView(this.cur, pw, ph, this.o, this.img.data);
-        if (this.o.falseColour || this.o.zebraOn || this.o.peakingOn) {
+        const mode = this.curB ? (this.o.compare === "blink" ? (this.blinkB ? "b" : "a") : (this.o.compare || "a")) : "a";
+        let base = this.cur, bdim = this.sideOf("b")?.proxy || [pw, ph];
+        if (mode === "difference" || mode === "heatmap") base = difference(this.cur, this.curB, pw, ph, bdim[0], bdim[1]);
+        if (mode === "heatmap") this.heatMax = heatmap(base, pw, ph, this.img.data).max;
+        else renderView(base, pw, ph, this.o, this.img.data);
+        this.shownMode = mode;
+        if (mode === "a" && (this.o.falseColour || this.o.zebraOn || this.o.peakingOn)) {
             const shown = this.view.scale * (this.idx.a.width / pw) * (pw / this.idx.a.width);   // screen px per proxy px
             overlays(this.cur, pw, ph, { ...this.o, peakingWidth: shown < 1 ? Math.ceil(1 / shown) - 1 : 0 }, this.img.data);
         }
@@ -456,7 +528,26 @@ class ViewerPro {
         const g = c.getContext("2d");
         g.clearRect(0, 0, bw, bh);
         g.imageSmoothingEnabled = this.view.scale * (this.idx.a.width / pw) < 1.0;
-        g.drawImage(this.off, this.view.x, this.view.y, pw * this.view.scale, ph * this.view.scale);
+        const dw = pw * this.view.scale, dh = ph * this.view.scale;
+        if (mode === "b" || mode === "split") {
+            // B at its own proxy size, drawn into A's rectangle (sizes may differ); split = A left of the wipe
+            if (!this.offB || this.offB.width !== bdim[0] || this.offB.height !== bdim[1]) {
+                this.offB = Object.assign(document.createElement("canvas"), { width: bdim[0], height: bdim[1] });
+                this.imgB = this.offB.getContext("2d").createImageData(bdim[0], bdim[1]);
+            }
+            renderView(this.curB, bdim[0], bdim[1], this.o, this.imgB.data);
+            this.offB.getContext("2d").putImageData(this.imgB, 0, 0);
+            if (mode === "b") g.drawImage(this.offB, this.view.x, this.view.y, dw, dh);
+            else {
+                const cut = this.view.x + dw * (this.o.wipe ?? 0.5);
+                g.drawImage(this.off, this.view.x, this.view.y, dw, dh);
+                g.save(); g.beginPath(); g.rect(cut, 0, bw - cut, bh); g.clip();
+                g.drawImage(this.offB, this.view.x, this.view.y, dw, dh); g.restore();
+                g.fillStyle = "#ffd166"; g.fillRect(Math.round(cut), this.view.y, 1, dh);
+            }
+        } else g.drawImage(this.off, this.view.x, this.view.y, dw, dh);
+        if (mode !== "a") { g.fillStyle = "#ffd166"; g.font = "11px monospace";
+            g.fillText(mode === "heatmap" ? `max |A-B| ${fmt(this.heatMax)}` : mode === "split" ? "A | B" : mode.toUpperCase(), 6, 14); }
         this.zoomLbl.textContent = `${Math.round(this.view.scale * (pw / this.idx.a.width) * 100)}%`;
         this.drawScopes(pw, ph);
     }
@@ -521,6 +612,64 @@ class ViewerPro {
         }
     }
 
+    blink() {
+        clearInterval(this.blinkTimer);
+        this.blinkTimer = null;
+        if (this.o.compare === "blink" && this.idx?.b) {
+            this.blinkTimer = setInterval(() => { this.blinkB = !this.blinkB; this.redraw(); }, 500);
+        }
+    }
+
+    syncAudio(start = false) {
+        const a = this.audioEl;
+        if (!a || !this.idx) return;
+        a.muted = !!this.o.mute;
+        const t = this.frame / (this.idx.fps || 24);
+        if (Math.abs((a.currentTime || 0) - t) > 0.08) { try { a.currentTime = t; } catch (e) { /* not loaded yet */ } }
+        if (start) a.play().catch(() => {});
+    }
+
+    async loadOcio() {
+        if (this.ocioLoaded) return;
+        this.ocioLoaded = true;
+        try {
+            const r = await fetch("/nukemax/ocio/lists?config=");
+            const j = await r.json();
+            if (!r.ok) return;
+            for (const [d, views] of Object.entries(j.displays || {})) {
+                for (const v of views) this.displaySel.append(Object.assign(el("option", "", `OCIO ${d} / ${v}`), { value: `ocio|${d}|${v}` }));
+            }
+            this.displaySel.title = `Display transform; OCIO entries from ${j.config} (${j.source})`;
+            if (this.o.ocioDV) this.pickDisplay(this.o.ocioDV);
+        } catch (e) { /* no OCIO on this server: sRGB / raw only */ }
+    }
+
+    async pickDisplay(value) {
+        if (!String(value).startsWith("ocio|")) { this.setO({ display: value, ocioDV: null, lut: null }); return; }
+        const [, d, v] = value.split("|");
+        const r = await fetch(`/nukemax/viewer/lut?display=${encodeURIComponent(d)}&view=${encodeURIComponent(v)}`);
+        const j = await r.json();
+        if (!r.ok) { this.probe.textContent = j.error || "OCIO view unavailable"; return; }
+        const bin = atob(j.data);
+        const bytes = new Uint8Array(bin.length);
+        for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+        this.setO({ display: "ocio", ocioDV: value, lut: { size: j.size, lo: j.lo, hi: j.hi, data: new Float32Array(bytes.buffer) } });
+        this.displaySel.value = value;
+    }
+
+    fillInspector(f) {
+        const rows = [];
+        const add = (k, v) => { if (v !== undefined && v !== null && v !== "") rows.push([k, typeof v === "string" ? v : JSON.stringify(v)]); };
+        add("source", f.source); add("kind", f.kind); add("size", f.size && f.size.join(" x "));
+        add("data window", f.data_window); add("display window", f.display_window);
+        add("compression", f.compression); add("bit depth", f.bit_depth); add("colour", f.colour); add("fps", f.fps);
+        for (const l of f.layers || []) add(`layer ${l.key}`, `${(l.channels || []).join(", ")}${l.alpha ? ` + ${l.alpha}` : ""}`
+            + `${l.formats?.length ? ` (${l.formats.join("/")})` : ""}${l.kind ? ` [${l.kind}]` : ""}`);
+        for (const [k, v] of Object.entries(f.header || {}).slice(0, 24)) add(k, v);
+        this.inspBody.replaceChildren(...rows.map(([k, v]) => { const tr = el("tr"); tr.append(el("td", "", k), el("td", "", v)); return tr; }));
+        this.insp.style.display = rows.length ? "" : "none";
+    }
+
     async sampleRegion(ax, ay, bx, by) {
         if (!this.view || !this.idx) return;
         const [pw, ph] = this.idx.a.proxy;
@@ -564,7 +713,7 @@ app.registerExtension({
         if (w) {
             w.serialize = false;                          // a display widget: never in widgets_values (L9.102)
             w.options = w.options || {};
-            w.options.getMinHeight = () => 440 + (vp.scopeExtra || 0);   // + the scope's height while one is open (7b)
+            w.options.getMinHeight = () => 470 + (vp.scopeExtra || 0);   // compare row + inspector (7c); + an open scope (7b)
         }
         const minW = 460;
         const cs = node.computeSize;
@@ -579,6 +728,6 @@ app.registerExtension({
         const pw = node.widgets?.find((x) => x.name === "apply_view_adjustment");
         if (pw) { const cb = pw.callback; pw.callback = function () { const r = cb?.apply(this, arguments); vp.paint(); return r; }; }
         const rem = node.onRemoved;
-        node.onRemoved = function () { vp.stop(); return rem?.apply(this, arguments); };
+        node.onRemoved = function () { vp.stop(); clearInterval(vp.blinkTimer); return rem?.apply(this, arguments); };
     },
 });

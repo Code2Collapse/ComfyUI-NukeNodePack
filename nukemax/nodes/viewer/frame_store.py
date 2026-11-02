@@ -122,9 +122,12 @@ def read_index(key: str) -> dict:
         return json.load(f)
 
 
+LAYER_RE = re.compile(r"^L\d{1,2}$")
+
+
 def proxy_bytes(key: str, i: int, which: str = "a") -> bytes:
-    if which not in ("a", "b"):
-        raise KeyError("which is a or b")
+    if which not in ("a", "b") and not LAYER_RE.match(str(which)):
+        raise KeyError("which is a, b or a layer (L0 ...)")
     p = os.path.join(path_of(key), f"{which}_{int(i)}.f16")
     if not os.path.isfile(p):
         raise KeyError(f"no frame {i}")
@@ -190,3 +193,58 @@ def enforce_budget(keep: str) -> list[str]:
         total -= s
         removed.append(k)
     return removed
+
+
+def write_layers(key: str, passes, n: int, limit: int = 8) -> list[dict]:
+    """EXR passes (a C2C_EXR_PASSES bundle) as proxies L0..L7, one frame read at a time (never the whole sequence)."""
+    if passes is None or getattr(passes, "c2c_type", None) != "C2C_EXR_PASSES":
+        return []
+    info = {lay["key"]: lay for lay in passes.to_dict().get("layers", [])}
+    d = os.path.join(root(), key)
+    out = []
+    for k, name in enumerate(list(info)[:limit]):
+        lay = info[name]
+        side = None
+        for i in range(min(n, len(passes))):
+            arr = torch.from_numpy(passes.read(name, [i])[0].astype(np.float32))      # [H, W, 3|4]
+            fr = _rgba(arr, None)
+            h, w = int(fr.shape[0]), int(fr.shape[1])
+            pw, ph = proxy_size(w, h)
+            prox = F.interpolate(fr.permute(2, 0, 1)[None], size=(ph, pw), mode="area")[0].permute(1, 2, 0) \
+                if (pw, ph) != (w, h) else fr
+            np.ascontiguousarray(prox.numpy().astype("<f2")).tofile(os.path.join(d, f"L{k}_{i}.f16"))
+            side = {"width": w, "height": h, "proxy": [pw, ph]}
+        if side:
+            out.append({"which": f"L{k}", "key": name, "kind": lay.get("kind"), "channels": lay.get("channels"),
+                        "alpha": lay.get("alpha"), "formats": lay.get("formats"), **side})
+    return out
+
+
+def write_audio(key: str, audio) -> dict | None:
+    """AUDIO ({waveform [B, C, S], sample_rate}) -> audio.wav (16-bit PCM, the stdlib wave module)."""
+    import wave
+    try:
+        wav = audio["waveform"]
+        sr = int(audio["sample_rate"])
+    except Exception:  # noqa: BLE001 - no sound
+        return None
+    a = wav[0] if getattr(wav, "ndim", 0) == 3 else wav
+    a = a.detach().float().cpu().numpy() if hasattr(a, "detach") else np.asarray(a, np.float32)
+    if a.ndim == 1:
+        a = a[None]
+    ch = min(2, int(a.shape[0]))
+    pcm = (np.clip(a[:ch].T, -1, 1) * 32767).astype("<i2")
+    path = os.path.join(root(), key, "audio.wav")
+    with wave.open(path, "wb") as w:
+        w.setnchannels(ch)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(pcm.tobytes())
+    return {"sample_rate": sr, "channels": ch, "seconds": round(pcm.shape[0] / sr, 4)}
+
+
+def audio_path(key: str) -> str:
+    p = os.path.join(path_of(key), "audio.wav")
+    if not os.path.isfile(p):
+        raise KeyError("this store has no sound")
+    return p

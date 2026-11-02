@@ -441,7 +441,15 @@ node's inputs and turns `apply_view_adjustment` on. The panel says VIEW ONLY or 
   - **Focus peaking:** marks stay visible below 100 %.
   - **Shift-drag** a region: exact full-resolution min / max / mean, and the pixels above 1.0 and below 0.
   - Under the picture: peak luma, its stops over 18 % grey, the share above 1.0 and below 0, and the mean.
-- A/B compare, audio and the OCIO display / view player are the next step.
+- **Compare** (connect `image_b`): A, B, A | B wipe (divider position adjustable), difference, difference heatmap
+  (scaled to its own maximum, which is shown), blink.
+- **EXR layers** (connect Read EXR Pro's `passes`): pick any layer to view (up to 8).
+- **EXR inspector:** source, kind, size, data and display windows, compression, bit depth, colour, fps, every layer's
+  channels and types, and the file header.
+- **Sound** (connect a native `video`, or `audio`): it plays with the timeline, follows scrubbing, and can be muted.
+- **OCIO Player:** the display picker lists the active config's displays and views. OCIO bakes the chosen one into a
+  33³ LUT behind a log2 shaper (−12 … +12 stops), and the panel applies it. At 18 % grey it matches OCIO's own
+  processor to 1e-4.
 
 The older **Viewer (NukeMax)** is unchanged: its output carries its gain / gamma / channel. Use Viewer Pro when the
 output must stay the input.
