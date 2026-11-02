@@ -94,6 +94,7 @@ app.registerExtension({
             // Part 19.7: "the node must confirm exactly which files it wrote" - the confirmed list, on the node
             NukeMax_WriteEXRPro: "written files",
             NukeMax_Write: "written files",              // 19.8, slice 4b: the same confirmation
+            NukeMax_OCIOConfigManager: "config summary", // 19.10, slice 5a: source, working space, missing LUTs
         };
         if (BOXES[node.comfyClass]) {
             // a real read-only textarea (ComfyUI's multiline STRING widget): a LiteGraph "text" widget is one line and,

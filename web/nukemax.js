@@ -15,6 +15,7 @@ import "./widgets/roto/roto_editor.js";
 import "./widgets/relight/light_placer.js";
 import "./widgets/relight/light_placer_2d.js";
 import "./widgets/io/read_exr_pro.js";        // L9.80: Read EXR Pro upload / refresh
+import "./widgets/io/ocio_picker.js";         // L9.80 slice 5a: OCIO lists from the node's own config
 import "./widgets/audio/waveform_preview.js";
 import "./widgets/nkscript/copy_paste.js";
 import "./widgets/mocha/upload.js";

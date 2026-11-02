@@ -359,6 +359,29 @@ node.
   (23.976 = 24000/1001). A new version is a new file, `name_v###.mov`.
 - Optional OCIO conversion before writing; the colour space is recorded.
 
+## NukeMax OCIO Config Manager (2026-11-02)
+
+One active OCIO config for the graph (Part 19.10). Connect its `ocio_config` to any NukeMax OCIO node (Color
+Transform, Display, Log Convert, Look Transform, Config Info): it wins over that node's own config choice, and the
+node says so on its `config` field.
+
+- **Sources:** the built-in ACES configs, `$OCIO`, a config in `models/ocio_configs/`, or any `.ocio` file
+  (`config_file`).
+- **Report** (on the node and as JSON): source, OCIO version, working space (role `scene_linear`), roles, colour
+  spaces, displays and views, looks, the LUT formats this OCIO reads, and **missing LUTs**. Every colour space's and
+  look's transforms are checked against the config's search path.
+- **Reload:** a config edited on disk is read again on the next run, with no restart. "Reload config" empties the
+  cache for every OCIO node.
+- **Pick colour space…** on the OCIO nodes and on Read / Write lists the colour spaces (by family), roles,
+  displays, views and looks of the node's own config, never a fixed list. The fields stay text, so a saved workflow
+  keeps its values and a name from a show config is never refused.
+
+All NukeMax OCIO nodes now load configs through this one cache.
+
+## Fixes 2026-11-02 (status line)
+
+- A NukeMax node with no preview kept "running…" after the run. It now shows how long it ran.
+
 ## Fixes 2026-11-02 (saved widget values)
 
 - On frontend 1.53, four NukeMax nodes (Audio Drive Mask, Audio Drive Schedule, PAR Resqueeze and the new Write EXR

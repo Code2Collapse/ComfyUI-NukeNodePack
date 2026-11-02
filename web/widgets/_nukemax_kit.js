@@ -186,13 +186,25 @@ app.registerExtension({
 
   async setup() {
     // Execution start: stamp the node that is running.
+    // L9.80 slice 5a: a node with no UI output never gets onExecuted, so its status stayed "running…" after the run.
+    // The NEXT "executing" event (another node, or null = the prompt ended) closes the one before.
+    let running = null;
+    const finish = () => {
+      const st = running && running[ST];
+      if (st && st.t0 && !st.fullError && st.status?.textContent === "running…") {
+        setStatus(st, `ran in ${((Date.now() - st.t0) / 1000).toFixed(2)}s`, "ok");
+      }
+      running = null;
+    };
     api.addEventListener("executing", ({ detail }) => {
       const id = detail;
+      finish();
       if (id == null) return;
       const node = findNodeByExecId(id);          // "12:5" inside a subgraph (L2.47)
       const st = node && node[ST];
-      if (st) { st.t0 = Date.now(); st.fullError = ""; setStatus(st, "running…", ""); }
+      if (st) { st.t0 = Date.now(); st.fullError = ""; setStatus(st, "running…", ""); running = node; }
     });
+    api.addEventListener("execution_success", finish);
 
     // Execution error: this is the whole point of the kit.
     api.addEventListener("execution_error", ({ detail }) => {

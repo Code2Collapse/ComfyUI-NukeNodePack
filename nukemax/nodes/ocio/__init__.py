@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import logging
 import os
-from functools import lru_cache
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -119,15 +118,13 @@ def _resolve_config_path(choice: str) -> Optional[str]:
     return None
 
 
-@lru_cache(maxsize=8)
 def _load_config(path: str):
-    import PyOpenColorIO as OCIO  # type: ignore[import-not-found]
-    if path.startswith("ocio://"):
-        return OCIO.Config.CreateFromBuiltinConfig(path)
-    return OCIO.Config.CreateFromFile(path)
+    """Through the OCIO Config Manager's ONE cache, keyed on the file's mtime (L9.80 slice 5a): an lru_cache
+    here kept serving a config after its file changed."""
+    from .config_manager import load
+    return load(path)
 
 
-@lru_cache(maxsize=4)
 def _colorspaces_for(path: str) -> Tuple[str, ...]:
     cfg = _load_config(path)
     return tuple(cs.getName() for cs in cfg.getColorSpaces())
@@ -218,13 +215,14 @@ class OCIOColorTransform:
                                               "tooltip": "Destination colorspace name."}),
             },
             "optional": {
+                "ocio_config": ("NUKEMAX_OCIO_CONFIG", {"tooltip": "From NukeMax OCIO Config Manager; overrides config."}),
                 "list_spaces": ("BOOLEAN", {"default": False,
                                              "tooltip": "If true, emit the available colorspaces in info_json and pass image through unchanged."}),
             },
         }
 
     def execute(self, image: torch.Tensor, config: str, src_colorspace: str,
-                dst_colorspace: str, list_spaces: bool = False):
+                dst_colorspace: str, list_spaces: bool = False, ocio_config=None):
         require_image_bhwc(image)
         import json as _json
         try:
@@ -235,7 +233,7 @@ class OCIOColorTransform:
                 "`pip install opencolorio` (Linux/macOS) or pip wheel for Windows."
             ) from exc
 
-        path = _resolve_config_path(config)
+        path = ocio_config or _resolve_config_path(config)
         if not path:
             raise FileNotFoundError(
                 f"OCIO config not found for choice {config!r}. "
@@ -299,12 +297,12 @@ class OCIOLogConvert:
             "image": ("IMAGE", {}),
             "config": (_list_configs(), {}),
             "operation": (("log_to_linear", "linear_to_log"), {"default": "log_to_linear"}),
-        }}
+        }, "optional": {"ocio_config": ("NUKEMAX_OCIO_CONFIG", {"tooltip": "From NukeMax OCIO Config Manager; overrides config."}),}}
 
-    def execute(self, image: torch.Tensor, config: str, operation: str):
+    def execute(self, image: torch.Tensor, config: str, operation: str, ocio_config=None):
         require_image_bhwc(image)
         import PyOpenColorIO as OCIO  # type: ignore[import-not-found]
-        path = _resolve_config_path(config)
+        path = ocio_config or _resolve_config_path(config)
         if not path:
             raise FileNotFoundError(f"OCIO config not found for choice {config!r}.")
         cfg = _load_config(path)
@@ -351,14 +349,15 @@ class OCIODisplay:
                        "tooltip": "Display-referred back to input colorspace (roundtrips)."}),
             "list_options": ("BOOLEAN", {"default": False,
                              "tooltip": "Pass image through; emit displays/views in info_json."}),
+            "ocio_config": ("NUKEMAX_OCIO_CONFIG", {"tooltip": "From NukeMax OCIO Config Manager; overrides config."}),
         }}
 
     def execute(self, image: torch.Tensor, config: str, input_colorspace: str,
-                display: str, view: str, invert: bool = False, list_options: bool = False):
+                display: str, view: str, invert: bool = False, list_options: bool = False, ocio_config=None):
         require_image_bhwc(image)
         import json as _json
         import PyOpenColorIO as OCIO  # type: ignore[import-not-found]
-        path = _resolve_config_path(config)
+        path = ocio_config or _resolve_config_path(config)
         if not path:
             raise FileNotFoundError(f"OCIO config not found for choice {config!r}.")
         cfg = _load_config(path)
@@ -389,12 +388,16 @@ class OCIODisplay:
         return (out, _json.dumps(info, indent=2))
 
 
+from .config_manager import NukeMax_OCIOConfigManager  # noqa: E402 - L9.80 slice 5a
+
 NODE_CLASS_MAPPINGS = {
+    "NukeMax_OCIOConfigManager": NukeMax_OCIOConfigManager,
     "NukeMax_OCIOColorTransform": OCIOColorTransform,
     "NukeMax_OCIOLogConvert": OCIOLogConvert,
     "NukeMax_OCIODisplay": OCIODisplay,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "NukeMax_OCIOConfigManager": "NukeMax OCIO Config Manager",
     "NukeMax_OCIOColorTransform": "OCIO Color Transform",
     "NukeMax_OCIOLogConvert": "OCIO Log Convert (Nuke)",
     "NukeMax_OCIODisplay": "OCIO Display (Nuke)",

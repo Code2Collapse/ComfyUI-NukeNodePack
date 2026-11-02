@@ -343,25 +343,11 @@ def _resolve_config_path(choice: str) -> str:
     )
 
 
-_CONFIG_CACHE: dict = {}
-
-
 def _load_config(path: str):
-    """Load and cache a config, keyed on (path, mtime, size) for real files."""
-    OCIO = _require_ocio()
-    if path.startswith("ocio://"):
-        key = ("builtin", path)
-    else:
-        st = os.stat(path)
-        key = ("file", path, st.st_mtime_ns, st.st_size)
-    if key in _CONFIG_CACHE:
-        return _CONFIG_CACHE[key]
-    cfg = (OCIO.Config.CreateFromBuiltinConfig(path) if path.startswith("ocio://")
-           else OCIO.Config.CreateFromFile(path))
-    if len(_CONFIG_CACHE) > 8:
-        _CONFIG_CACHE.clear()
-    _CONFIG_CACHE[key] = cfg
-    return cfg
+    """Through the OCIO Config Manager's ONE cache, keyed on (path, mtime, size) (L9.80 slice 5a)."""
+    _require_ocio()
+    from ..ocio.config_manager import load
+    return load(path)
 
 
 def _colorspace_names(cfg) -> List[str]:
@@ -868,13 +854,13 @@ class OCIOLookTransform:
                                            "Info' to list the looks this config defines."}),
             "direction": (("forward", "inverse"), {"default": "forward"}),
             "mix": _MIX_INPUT,
-        }}
+        }, "optional": {"ocio_config": ("NUKEMAX_OCIO_CONFIG", {"tooltip": "From NukeMax OCIO Config Manager; overrides config."})}}
 
     def execute(self, image, config, in_colorspace, out_colorspace, look="",
-                direction="forward", mix=1.0):
+                direction="forward", mix=1.0, ocio_config=None):
         require_image_bhwc(image)
         OCIO = _require_ocio()
-        path = _resolve_config_path(config)
+        path = ocio_config or _resolve_config_path(config)
         cfg = _load_config(path)
 
         src = _check_colorspace(cfg, in_colorspace, "in_colorspace", path)
@@ -942,11 +928,11 @@ class OCIOConfigInfo:
 
     @classmethod
     def INPUT_TYPES(cls):
-        return {"required": {"config": (_list_configs(), {})}}
+        return {"required": {"config": (_list_configs(), {})}, "optional": {"ocio_config": ("NUKEMAX_OCIO_CONFIG", {"tooltip": "From NukeMax OCIO Config Manager; overrides config."})}}
 
-    def execute(self, config):
+    def execute(self, config, ocio_config=None):
         OCIO = _require_ocio()
-        path = _resolve_config_path(config)
+        path = ocio_config or _resolve_config_path(config)
         cfg = _load_config(path)
 
         spaces = _colorspace_names(cfg)
