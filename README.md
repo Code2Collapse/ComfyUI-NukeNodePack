@@ -318,6 +318,27 @@ A safe EXR writer (Part 19.7). It takes the image (one frame or a sequence), an 
 A relative `output_dir` lives inside ComfyUI's output folder. An absolute folder follows the readers' rule: any folder
 on a server that only listens on this machine, only the C2C media roots on a server reachable from other machines.
 
+## NukeMax Read (2026-11-02)
+
+One reader for stills, numbered sequences and video (Part 19.8 / 19.9), on the same engine as Read EXR Pro.
+
+- **Formats:** EXR, DPX, TIFF, PNG, JPEG, HDR, TGA, BMP, WebP, and the video containers PyAV opens (MOV, MP4, MKV,
+  WebM, AVI, MXF). 16-bit TIFF / DPX keep their precision; EXR keeps values above 1.0, its alpha and its passes.
+- **Sequences:** detected from one frame you pick, or written as a pattern (`shot.####.exr`, `shot.%04d.dpx`,
+  `shot.$F4.png`). A frame range with a step (`1001-1100`, `1001-1100x2`) and a frame shift are available.
+  - A gap is refused by default, naming the frame. You can choose to fill it black, hold the previous frame, use the
+    nearest frame, or skip it.
+  - A range reaching past the ends holds, goes black, loops, bounces or is refused.
+- **Video:** frames count from 0, as Load Video (C2C) does. The `audio` output carries the clip's sound for the frames
+  read (silence for stills and sequences).
+- **Frame numbers:** `frame_numbers` gives them as a range string (`1001-1003, 1005-1007x2`). Write EXR Pro's
+  `frame_numbers` reads that string, so the numbering survives a read → write round trip.
+- **On the node:** a contact sheet of the range with frame numbers (one preview for a still), and the upload status.
+- **Upload media…** takes one file, every frame of a sequence or a video. Files are streamed to disk, checked by their
+  content and stored in `input/nukemax_media/`. A different file with the same name becomes a new version, never an
+  overwrite. A server path is held to the C2C media roots on a server reachable from other machines.
+- Optional OCIO conversion on read (`colour_space` → `convert_to`).
+
 ## Fixes 2026-11-02 (saved widget values)
 
 - On frontend 1.53, four NukeMax nodes (Audio Drive Mask, Audio Drive Schedule, PAR Resqueeze and the new Write EXR
