@@ -213,10 +213,11 @@ class Bilateral:
         if _HAVE_CV2:
             out = torch.empty_like(rgb)
             d = int(size) * 2 + 1
-            arr = (rgb.detach().cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
+            # L9.80 slice 6 (HDR audit): float32 through cv2 - the old uint8 hop clipped to 0..1 and to 256 levels
+            arr = np.ascontiguousarray(rgb.detach().cpu().float().numpy())
             for i in range(arr.shape[0]):
-                f = cv2.bilateralFilter(arr[i], d, sigma_color * 255.0, sigma_space)
-                out[i] = torch.from_numpy(f.astype(np.float32) / 255.0).to(rgb.device, rgb.dtype)
+                f = cv2.bilateralFilter(arr[i], d, float(sigma_color), float(sigma_space))
+                out[i] = torch.from_numpy(f.reshape(arr[i].shape)).to(rgb.device, rgb.dtype)
             return (_join(out, a),)
         # Pure-torch fallback: windowed joint domain/range weighting.
         r = int(size)

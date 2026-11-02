@@ -394,6 +394,25 @@ Colour-managed I/O on NukeMax Read / Write and the OCIO Config Manager (Part 19.
   - The config, both spaces and how each was chosen are recorded in the manifest sidecar.
 - Measured live: an sRGB PNG read into ACEScg and written back matches the source to within 6e-8.
 
+## Float / HDR path (2026-11-02)
+
+Every NukeMax image node that runs without a model was measured on an HDR ramp (−0.5 … 4.0), looking for clamps to
+0..1 and 8-bit hops (Part 19.11; the table is in the C2C workspace, `docs/evidence/L9.80/HDR_AUDIT.md`).
+
+- **Fixed:**
+  - Corner Pin and Bilateral no longer pass the image through 8-bit; highlights, negatives and precision survive.
+  - Levels has a `clamp` toggle. On (the default) is the classic behaviour; off keeps HDR and negatives. Whites can be
+    set above 1.0.
+  - FFT Texture Synthesis keeps the example's own range.
+- **Clamping on purpose:**
+  - Grade's `black_clamp` (on by default, as in Nuke) and `white_clamp` (off).
+  - Keyers, display transforms, tone mapping, posterize and ST maps output 0..1 by definition.
+  - Hue Shift works in HSV, which has no negative values.
+- **Measured live:** Read EXR Pro → Levels (clamp off) → Corner Pin → Bilateral → Write EXR Pro (float) keeps 3, 6
+  and 9 exactly.
+- **Stock ComfyUI:** VAE Decode clamps to 0..1 (`comfy/sd.py`), and Save / Preview Image write 8-bit. Use Write EXR
+  Pro or NukeMax Write to keep float.
+
 ## Fixes 2026-11-02 (status line)
 
 - A NukeMax node with no preview kept "running…" after the run. It now shows how long it ran.

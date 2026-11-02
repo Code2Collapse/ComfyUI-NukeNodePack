@@ -32,7 +32,7 @@ class NukeMax_Levels:
                 ),
                 "input_white": (
                     "FLOAT",
-                    {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01},
+                    {"default": 1.0, "min": 0.0, "max": 64.0, "step": 0.01},
                 ),
                 "gamma": (
                     "FLOAT",
@@ -44,12 +44,15 @@ class NukeMax_Levels:
                 ),
                 "output_white": (
                     "FLOAT",
-                    {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01},
+                    {"default": 1.0, "min": 0.0, "max": 64.0, "step": 0.01},
                 ),
                 "mix": (
                     "FLOAT",
                     {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01},
                 ),
+            },
+            "optional": {
+                "clamp": ("BOOLEAN", {"default": True, "tooltip": "On: the input is clamped to input black..white (classic Levels). Off: values below black and above white keep going - HDR and negatives survive (L9.80 slice 6)."}),
             },
         }
 
@@ -62,6 +65,7 @@ class NukeMax_Levels:
         output_black,
         output_white,
         mix,
+        clamp=True,
     ):
         require_image_bhwc(image)
         img = image
@@ -74,10 +78,14 @@ class NukeMax_Levels:
             alpha = None
 
         input_range = max(float(input_white) - float(input_black), 1e-7)
-        rgb_normalized = torch.clamp((rgb - input_black) / input_range, 0.0, 1.0)
+        rgb_normalized = (rgb - input_black) / input_range
+        if clamp:
+            rgb_normalized = torch.clamp(rgb_normalized, 0.0, 1.0)
 
         safe_gamma = max(float(gamma), 0.1)
-        rgb_gamma = torch.pow(rgb_normalized, 1.0 / safe_gamma)
+        # gamma on the positive part only (as Nuke's Grade): a fractional power of a negative is NaN
+        rgb_gamma = torch.where(rgb_normalized > 0, rgb_normalized.clamp(min=0) ** (1.0 / safe_gamma),
+                                rgb_normalized)
 
         output_range = float(output_white) - float(output_black)
         rgb_final = rgb_gamma * output_range + output_black

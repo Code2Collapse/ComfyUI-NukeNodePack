@@ -355,9 +355,10 @@ class CornerPin:
         M = cv2.getPerspectiveTransform(src, dst)
         out = []
         for i in range(B):
-            arr = (image[i].cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
+            # L9.80 slice 6 (HDR audit): float32 in, float32 out - the old uint8 hop clipped to 0..1 and to 256 levels
+            arr = np.ascontiguousarray(image[i].detach().cpu().float().numpy())
             w = cv2.warpPerspective(arr, M, (W, H), flags=cv2.INTER_LINEAR, borderValue=0)
-            out.append(torch.from_numpy(w.astype(np.float32) / 255.0))
+            out.append(torch.from_numpy(w.reshape(H, W, -1)))
         return (torch.stack(out, 0).to(image.device),)
 
 

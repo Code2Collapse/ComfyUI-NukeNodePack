@@ -383,7 +383,7 @@ class ExposureGradeMEC:
 
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)
-    OUTPUT_TOOLTIPS = ("Graded image clamped to [0,1].",)
+    OUTPUT_TOOLTIPS = ("Graded image, linear float - not clamped (negatives are only dropped when re-encoding to sRGB, where they are undefined).",)
     FUNCTION = "grade"
     CATEGORY = "C2C/Color"
     DESCRIPTION = "Exposure (stops), WB (temp/tint), and contrast around a pivot."

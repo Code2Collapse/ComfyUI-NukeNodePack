@@ -197,7 +197,8 @@ class FFTTextureSynthesis:
         out = nfft.synthesize(new_ft)
         # Renormalize to original mean/std to keep tonal range.
         out = (out - out.mean()) / out.std().clamp_min(1e-6) * ex_r.std() + ex_r.mean()
-        return (to_bhwc(out.clamp(0, 1)),)
+        # L9.80 slice 6 (HDR audit): held to the EXAMPLE's range, not 0..1 - an HDR texture stays HDR
+        return (to_bhwc(out.clamp(float(ex_r.min()), float(ex_r.max()))),)
 
 
 NODE_CLASS_MAPPINGS = {
