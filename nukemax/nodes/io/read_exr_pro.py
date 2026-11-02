@@ -95,6 +95,17 @@ def rel_to_input(text):
         pass
     return text
 
+def _rel_all(value):
+    """rel_to_input over every absolute path in a nested dict / list (path, pattern, sequence directory, candidates):
+    found live in L9.80 slice 3 - a sequence's folder still named this machine's input path."""
+    if isinstance(value, dict):
+        return {k: _rel_all(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_rel_all(v) for v in value]
+    if isinstance(value, str) and os.path.isabs(value):
+        return rel_to_input(value)
+    return value
+
 
 def fingerprint(path: str, mode: str) -> str:
     """Size + modification time of the file, or of every member of its sequence."""
@@ -260,8 +271,7 @@ class NukeMax_ReadEXRPro:
         meta = {
             "path": path if mode == "server path" else str(file),
             "mode": mode, "frames": n, "size": [int(handle.width), int(handle.height)],
-            "media": {k: (rel_to_input(v) if k in ("path", "pattern") and mode != "server path" else v)
-                      for k, v in facts.to_dict().items()},
+            "media": facts.to_dict() if mode == "server path" else _rel_all(facts.to_dict()),
             "header": getattr(info, "header", {}) if info is not None else {},
             "range": range_notes,
             "values": {"min": round(float(image.min()), 6), "max": round(float(image.max()), 6),

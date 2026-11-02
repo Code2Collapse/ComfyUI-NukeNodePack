@@ -1,4 +1,5 @@
-// nukemax_read_exr_pro.js — the file side of NukeMax Read EXR Pro (owner Rev 3 Part 19.3; ledger L9.80).
+// nukemax_read_exr_pro.js — the file side of NukeMax Read EXR Pro (owner Rev 3 Part 19.3; ledger L9.80), and the
+// result boxes of EXR Metadata Reader Pro (19.5) and Write EXR Pro (19.7).
 //
 // The browser's image picker does not take .exr, so the node gets its own buttons:
 //   Upload EXR…   one file, or every frame of a sequence (multi-select); each goes to POST /nukemax/media/upload, which
@@ -8,6 +9,7 @@
 // The workflow saves the input-relative name, never a path from the user's computer. Status is shown on the node.
 
 import { app } from "../../../../scripts/app.js";
+import { ComfyWidgets } from "../../../../scripts/widgets.js";
 
 const TYPE = "NukeMax_ReadEXRPro";
 
@@ -68,10 +70,26 @@ async function upload(node) {
 app.registerExtension({
     name: "NukeMax.ReadEXRPro",
     nodeCreated(node) {
-        if (node.comfyClass === "NukeMax_EXRMetadataReaderPro") {
+        const BOXES = {
             // Part 19.5's header inspector: the node's summary (sizes, windows, parts, channels, layers) on the node
-            const box = node.addWidget("text", "header summary", "(run the node)", () => {}, { serialize: false, multiline: true });
-            if (box) { box.serialize = false; box.disabled = true; }
+            NukeMax_EXRMetadataReaderPro: "header summary",
+            // Part 19.7: "the node must confirm exactly which files it wrote" - the confirmed list, on the node
+            NukeMax_WriteEXRPro: "written files",
+        };
+        if (BOXES[node.comfyClass]) {
+            // a real read-only textarea (ComfyUI's multiline STRING widget): a LiteGraph "text" widget is one line and,
+            // disabled, draws no value at all - the list was set but invisible (L9.80 slice 3 screenshot)
+            const box = ComfyWidgets.STRING(node, BOXES[node.comfyClass], ["STRING", { multiline: true }], app)?.widget;
+            if (box) {
+                box.serialize = false;                      // display only: never in widgets_values (see L9.102)
+                box.value = "(run the node)";
+                const el = box.inputEl || box.element;
+                if (el) { el.readOnly = true; el.style.fontSize = "11px"; el.style.opacity = "0.9"; }
+                // about six lines visible (the summary, then the files); the rest scrolls inside the box
+                box.options = box.options || {};
+                box.options.getMinHeight = () => 96;
+                node.setSize?.([node.size[0], Math.max(node.size[1], node.computeSize()[1])]);
+            }
             const prev = node.onExecuted;
             node.onExecuted = function (message) {
                 prev?.apply(this, arguments);

@@ -290,3 +290,43 @@ It runs on the vendored C2C media engine, so it reads EXR exactly as Load Video 
   four named passes as their own outputs (`pass_1`…`pass_4`). Each is decoded only when named.
 
 For uploaded files, every output names the input-relative file, never this machine's path.
+
+## NukeMax Write EXR Pro (2026-11-02)
+
+A safe EXR writer (Part 19.7). It takes the image (one frame or a sequence), an optional alpha, an optional pass bundle
+(from Read EXR Pro or EXR Pass Reader) and optional metadata.
+
+- **Never a silent overwrite.** By default every write goes into a new `name_v###/` folder and never touches an
+  earlier version. With plain names, a write that would replace a file is refused and names the file; `overwrite`
+  must be turned on to replace files.
+- **Atomic.** A new version is written into a hidden folder and renamed into place whole. A replaced file is written
+  beside the old one and renamed over it. A failed or interrupted write leaves no half version and no half file.
+- **Formats:** half or float. Data passes (depth, position, normal, motion …) stay 32-bit float when the beauty is
+  half. Values above 65504 cannot be stored in half; they are counted and reported, never hidden. Every OpenEXR
+  compression is available, in single part (layers as channels) or multipart (one part per layer).
+- **Frames:** `frame_start` + `padding`, `name.####.exr` or `name_####.exr`, or an explicit mapping
+  (`1001-1010, 1020`, `1001-1019x2`).
+- **Colour:** an optional OCIO conversion of the colour channels (data passes are never converted). The colour space
+  is written in the header; OpenImageIO 3 stores its own interop id in `oiio:ColorSpace`, so the exact name is also
+  kept in `nukemax:colourSpace`.
+- **Metadata:** the source header (camera, owner, custom keys) is carried over; the frame rate comes from the
+  metadata or the `fps` input.
+- **Proof:** a manifest (files, frames, SHA-256, channels, colour, source) is returned and written as
+  `<name>.manifest.json`. The node re-opens every file it wrote, checks its hash, and lists exactly those files on
+  the node.
+
+A relative `output_dir` lives inside ComfyUI's output folder. An absolute folder follows the readers' rule: any folder
+on a server that only listens on this machine, only the C2C media roots on a server reachable from other machines.
+
+## Fixes 2026-11-02 (saved widget values)
+
+- On frontend 1.53, four NukeMax nodes (Audio Drive Mask, Audio Drive Schedule, PAR Resqueeze and the new Write EXR
+  Pro) lost or shifted a widget value on every save → load and on Convert to Subgraph.
+  - Cause: the status line under every NukeMax node was saved as an extra value. On a node with exactly one
+    connection-only text input, that extra value made the frontend take the workflow for an old format and drop a
+    real value.
+  - Fixed: the status line is no longer saved, and a workflow saved before the fix loads with every value in its
+    place.
+  - Not recoverable: a workflow that was loaded and saved again while the bug was there was saved with the moved
+    values. Check those four nodes in older workflows.
+- An error on a NukeMax node now shows the node's own message, not a line of the Python traceback.
