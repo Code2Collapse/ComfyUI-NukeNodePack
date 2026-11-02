@@ -246,3 +246,10 @@ Relicensed from Apache-2.0 on 2026-09-19: the `NukeMax/HDR` family is a
 port of [radiance](https://github.com/fxtdstudios/radiance), which
 declares GPL-3.0. See `NOTICE.md` for the full provenance of every ported
 family.
+
+## Vendored engine (2026-11-02)
+
+`nukemax/vendor/c2c_core` is the C2C shared media engine (CustomNodePacks, Apache-2.0), copied byte for byte and
+kept equal by the workspace sync and the pre-push gate. NukeMax's coming Read EXR Pro and the readers after it use it
+for EXR, sequences, passes and safe server paths, the same engine as Load Video (C2C) and the MiniMax Suite (Rev 3
+Part 19). Nothing changes for existing nodes. See `nukemax/vendor/VENDORED.md` and `NOTICE.md`.
