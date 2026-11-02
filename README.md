@@ -339,6 +339,26 @@ One reader for stills, numbered sequences and video (Part 19.8 / 19.9), on the s
   overwrite. A server path is held to the C2C media roots on a server reachable from other machines.
 - Optional OCIO conversion on read (`colour_space` → `convert_to`).
 
+## NukeMax Write (2026-11-02)
+
+One writer for stills, numbered sequences and movies (Part 19.8). It uses the same safety rules as Write EXR Pro:
+versioned by default, never a silent overwrite, atomic, a manifest with SHA-256, and the exact files listed on the
+node.
+
+- **Formats:** only the ones this machine can write are offered.
+  - Stills and sequences: EXR (handed to Write EXR Pro), DPX 8/10/12/16-bit, TIFF 8/16-bit or 32-bit float
+    (none / lzw / zip), PNG 8/16-bit, JPEG with a quality setting.
+  - Movies: ProRes 422 HQ (.mov), H.264 (.mp4), FFV1 lossless (.mkv). DNxHR, HEVC and ProRes 4444 will follow once
+    the shared C2C writer supports them.
+- **Honest output:** values outside 0..1 are clipped for the integer formats, and the clipped count is reported.
+  JPEG and the movie codecs have no alpha; the node says so rather than dropping it silently. An odd size for H.264 or
+  ProRes is refused in words.
+- **Numbering:** `frame_start` + `padding`, or a mapping (connect NukeMax Read's `frame_numbers`). `frame_range`
+  writes only a subset.
+- **Movies:** the `audio` input is muxed in (connect NukeMax Read's `audio` to keep a clip's sound). The rate is exact
+  (23.976 = 24000/1001). A new version is a new file, `name_v###.mov`.
+- Optional OCIO conversion before writing; the colour space is recorded.
+
 ## Fixes 2026-11-02 (saved widget values)
 
 - On frontend 1.53, four NukeMax nodes (Audio Drive Mask, Audio Drive Schedule, PAR Resqueeze and the new Write EXR

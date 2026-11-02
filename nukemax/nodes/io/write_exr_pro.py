@@ -16,7 +16,6 @@ Original node, GPL-3.0-only.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -25,7 +24,6 @@ import time
 import numpy as np
 import torch
 
-from . import _media_roots as MR
 
 BIT_DEPTHS = ("half (16-bit float)", "float (32-bit)")
 COMPRESSIONS = ("zip", "zips", "piz", "pxr24", "b44", "b44a", "dwaa", "dwab", "rle", "none")
@@ -43,8 +41,15 @@ _STRUCTURAL = {"channels", "compression", "datawindow", "displaywindow", "lineor
                "chunkcount", "tiles", "framespersecond", "smpte:timecode", "timecode"}
 
 
-class WriteError(ValueError):
-    """A refusal in plain words."""
+from . import _safe_write as SW  # noqa: E402 - the shared safe-write core (also NukeMax Write)
+from ._safe_write import (  # noqa: E402
+    WriteError, clean_name, display_path, frame_file, next_version, parse_frames)
+
+_sha256 = SW.sha256
+
+
+def resolve_dir(output_dir: str) -> str:
+    return SW.resolve_dir(output_dir, "NukeMax Write EXR Pro")
 
 
 def _oiio():
@@ -53,84 +58,6 @@ def _oiio():
     except ImportError as exc:
         raise WriteError("NukeMax Write EXR Pro needs OpenImageIO (pip install OpenImageIO).") from exc
     return oiio
-
-
-def _output_root() -> str:
-    import folder_paths  # type: ignore[import-not-found]
-    return os.path.realpath(folder_paths.get_output_directory())
-
-
-def resolve_dir(output_dir: str) -> str:
-    """A relative folder lives under ComfyUI's output folder (and may not climb out of it); an absolute one follows
-    the readers' rule: any folder on a loopback-only server, only the C2C media roots on a reachable one."""
-    raw = str(output_dir or "").strip() or DEFAULT_DIR
-    if os.path.isabs(raw):
-        msg = MR.check_run_path(raw)
-        if msg:
-            raise WriteError(f"NukeMax Write EXR Pro: {msg}")
-        return os.path.realpath(raw)
-    root = _output_root()
-    path = os.path.realpath(os.path.join(root, raw))
-    if os.path.commonpath([root, path]) != root:
-        raise WriteError(f"NukeMax Write EXR Pro: output_dir {raw!r} climbs out of ComfyUI's output folder - use a "
-                         "folder inside it, or an absolute path.")
-    return path
-
-
-def display_path(path: str) -> str:
-    """Output-relative for files under the output folder (the browser never learns this machine's layout)."""
-    try:
-        root = _output_root()
-        if os.path.commonpath([root, os.path.realpath(path)]) == root:
-            return os.path.relpath(path, root).replace(os.sep, "/")
-    except (ValueError, ImportError):
-        pass
-    return path
-
-
-def clean_name(name: str) -> str:
-    base = re.sub(r"[^A-Za-z0-9._-]+", "_", str(name or "").strip()).strip("._") or "render"
-    return re.sub(r"\.exr$", "", base, flags=re.IGNORECASE)
-
-
-def parse_frames(text: str, count: int, start: int) -> list[int]:
-    """'' -> start, start+1 ...; '1001-1010, 1020' -> exactly ``count`` distinct numbers or a refusal."""
-    s = str(text or "").strip()
-    if not s:
-        return [int(start) + i for i in range(count)]
-    out: list[int] = []
-    for part in re.split(r"[,\s]+", s):
-        if not part:
-            continue
-        m = re.fullmatch(r"(-?\d+)(?:-(-?\d+)(?:x(\d+))?)?", part)
-        if not m:
-            raise WriteError(f"NukeMax Write EXR Pro: frame_numbers {part!r} is not a number or a range (1001-1010, "
-                             "1001-1020x2).")
-        a = int(m.group(1))
-        b = int(m.group(2)) if m.group(2) is not None else a
-        step = int(m.group(3) or 1)
-        if b < a or step < 1:
-            raise WriteError(f"NukeMax Write EXR Pro: frame range {part!r} runs backwards.")
-        out.extend(range(a, b + 1, step))
-    if len(out) != len(set(out)):
-        raise WriteError("NukeMax Write EXR Pro: frame_numbers repeats a frame - each frame needs its own number.")
-    if len(out) != count:
-        raise WriteError(f"NukeMax Write EXR Pro: frame_numbers gives {len(out)} frame(s) for {count} image(s) - "
-                         "give one number per image, or leave it empty to count from frame_start.")
-    return out
-
-
-def frame_file(name: str, frame: int, padding: int, pattern: str) -> str:
-    sep = "_" if pattern.startswith("name_") else "."
-    num = f"{abs(frame):0{max(1, int(padding))}d}"
-    return f"{name}{sep}{'-' if frame < 0 else ''}{num}.exr"
-
-
-def next_version(directory: str, name: str) -> int:
-    rx = re.compile(rf"^{re.escape(name)}_v(\d{{3,}})$")
-    found = [int(m.group(1)) for e in (os.listdir(directory) if os.path.isdir(directory) else ())
-             if (m := rx.match(e))]
-    return max(found, default=0) + 1
 
 
 def _metadata(text: str) -> dict:
@@ -178,14 +105,6 @@ def header_attributes(meta: dict, mode: str) -> tuple[list[tuple], list[str]]:
         else:
             skipped.append(key)
     return keep, skipped
-
-
-def _sha256(path: str) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def _plan_passes(passes, wanted: str, size: tuple[int, int], count: int) -> list[dict]:
@@ -292,7 +211,7 @@ class NukeMax_WriteEXRPro:
         name = clean_name(filename)
         frames = parse_frames(frame_numbers, n, frame_start)
         meta = _metadata(metadata)
-        plan = _plan_passes(passes, passes_to_write, (h, w), n)
+        pass_plan = _plan_passes(passes, passes_to_write, (h, w), n)
         a = None
         if alpha is not None:
             a = alpha if alpha.ndim == 3 else alpha.unsqueeze(0)
@@ -306,31 +225,12 @@ class NukeMax_WriteEXRPro:
         if cs_in and not cs_out:
             raise WriteError("NukeMax Write EXR Pro: convert_from needs colour_space (the space to convert to).")
 
-        # ---- where, and what may be replaced
-        base = resolve_dir(output_dir)
+        # ---- where, and what may be replaced (the shared core: versions, refusals, atomic landing)
         versioned = versioning == VERSIONING[0]
-        ver = 0
-        if versioned:
-            ver = int(version) if int(version or 0) > 0 else next_version(base, name)
-            stem = f"{name}_v{ver:03d}"
-            final_dir = os.path.join(base, stem)
-        else:
-            stem, final_dir = name, base
-        files = [frame_file(stem, f, padding, frame_pattern) for f in frames]
-        manifest_name = f"{stem}.manifest.json"
-        targets = [os.path.join(final_dir, f) for f in files] + ([os.path.join(final_dir, manifest_name)]
-                                                                 if sidecar else [])
-        existing = [t for t in targets if os.path.exists(t)]
-        if versioned and os.path.isdir(final_dir) and not overwrite:
-            raise WriteError(f"NukeMax Write EXR Pro: version {ver:03d} already exists ({display_path(final_dir)}) - "
-                             "set version 0 for the next free one, or turn overwrite on to replace its files.")
-        if existing and not overwrite:
-            raise WriteError(f"NukeMax Write EXR Pro: {len(existing)} file(s) would be replaced, e.g. "
-                             f"{display_path(existing[0])} - turn overwrite on, or use versioning.")
-        whole_folder = versioned and not os.path.isdir(final_dir)   # a new version: written hidden, renamed whole
-        work_dir = os.path.join(base, f".~{stem}.partial-{os.getpid()}-{int(time.time() * 1000)}") if whole_folder \
-            else final_dir
-        os.makedirs(work_dir, exist_ok=True)
+        target = SW.plan("NukeMax Write EXR Pro", resolve_dir(output_dir), name,
+                         lambda stem: [frame_file(stem, f, padding, frame_pattern) for f in frames],
+                         versioned=versioned, version=version, overwrite=overwrite, sidecar=sidecar)
+        stem, ver, final_dir, files = target.stem, target.version, target.final_dir, target.files
 
         # ---- colour (beauty + colour passes; data passes never)
         conv = None
@@ -348,7 +248,7 @@ class NukeMax_WriteEXRPro:
                                     ("layer", src_media.get("layer"))) if v}
         report = {"embedded": [x[0] for x in attrs], "skipped": skipped, "writer": [], "half_overflow": 0,
                   "nan": 0, "converted": converted}
-        written, temps = [], []
+        written = []
         try:
             for i, frame in enumerate(frames):
                 rgb = image[i:i + 1, ..., :3].float()
@@ -361,7 +261,7 @@ class NukeMax_WriteEXRPro:
                 parts = [{"name": "rgba", "names": ["R", "G", "B"] + (["A"] if fa is not None else []),
                           "planes": [rgb[..., 0], rgb[..., 1], rgb[..., 2]] + ([fa] if fa is not None else []),
                           "float": [False] * (4 if fa is not None else 3)}]
-                for p in plan:
+                for p in pass_plan:
                     arr = passes.read(p["key"], [i])[0].astype(np.float32)
                     if arr.shape[:2] != (h, w):
                         raise WriteError(f"NukeMax Write EXR Pro: pass {p['key']!r} is {arr.shape[1]}x{arr.shape[0]}, "
@@ -390,18 +290,12 @@ class NukeMax_WriteEXRPro:
                     parts = [{"name": "", "names": [x for pt in parts for x in pt["names"]],
                               "planes": [x for pt in parts for x in pt["planes"]],
                               "float": [x for pt in parts for x in pt["float"]]}]
-                final = os.path.join(final_dir, files[i])
-                tmp = os.path.join(work_dir, files[i]) if whole_folder else \
-                    os.path.join(work_dir, f".~{files[i][:-4]}.{os.getpid()}.exr")
-                temps.append(tmp)
+                tmp = target.temp_for(files[i])
                 writer_keys = self._write(oiio, tmp, parts, w, h, half, compression, attrs, rate, cs_out, frame,
                                           source)
                 if not report["writer"]:
                     report["writer"] = writer_keys
-                if not whole_folder:
-                    os.replace(tmp, final)                          # atomic per file
-                    temps.remove(tmp)
-                written.append(final)
+                written.append(target.place(tmp, files[i]))     # now, or with the whole folder
             channels = [x for pt in parts for x in pt["names"]]
             man = {"schema": SCHEMA, "written_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
                    "directory": display_path(final_dir), "version": ver or None,
@@ -415,38 +309,13 @@ class NukeMax_WriteEXRPro:
                    "converted": converted, "alpha": None if a is None else alpha_mode,
                    "fps": f"{rate.numerator}/{rate.denominator}" if rate else None, "source": source,
                    "half_overflow": report["half_overflow"], "nan": report["nan"], "overwrite": bool(overwrite)}
-            if whole_folder:
-                man_files = [os.path.join(work_dir, f) for f in files]
-            else:
-                man_files = written
-            man["files"] = [{"file": os.path.basename(p), "frame": fr, "bytes": os.path.getsize(p),
-                             "sha256": _sha256(p)} for p, fr in zip(man_files, frames)]
+            man["files"] = [{"file": f, "frame": fr, "bytes": os.path.getsize(target.current(f)),
+                             "sha256": _sha256(target.current(f))} for f, fr in zip(files, frames)]
             text = json.dumps(man, indent=2)
-            if sidecar:
-                mp = os.path.join(work_dir, manifest_name if whole_folder else f".~{manifest_name}.{os.getpid()}")
-                with open(mp, "w", encoding="utf-8") as f:
-                    f.write(text)
-                if not whole_folder:
-                    os.replace(mp, os.path.join(final_dir, manifest_name))
-            if whole_folder:
-                os.replace(work_dir, final_dir)                     # the whole version appears at once
-                temps.clear()
+            target.write_manifest(text)
+            target.commit()
         except BaseException:
-            for t in temps:                                         # only what THIS write created
-                try:
-                    os.remove(t)
-                except OSError:
-                    pass
-            if whole_folder:
-                for f in os.listdir(work_dir) if os.path.isdir(work_dir) else ():
-                    try:
-                        os.remove(os.path.join(work_dir, f))
-                    except OSError:
-                        pass
-                try:
-                    os.rmdir(work_dir)
-                except OSError:
-                    pass
+            target.abort()
             raise
 
         # ---- confirm: re-open each file, compare its hash with the manifest

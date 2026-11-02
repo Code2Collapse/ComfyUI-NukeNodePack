@@ -93,6 +93,7 @@ app.registerExtension({
             NukeMax_EXRMetadataReaderPro: "header summary",
             // Part 19.7: "the node must confirm exactly which files it wrote" - the confirmed list, on the node
             NukeMax_WriteEXRPro: "written files",
+            NukeMax_Write: "written files",              // 19.8, slice 4b: the same confirmation
         };
         if (BOXES[node.comfyClass]) {
             // a real read-only textarea (ComfyUI's multiline STRING widget): a LiteGraph "text" widget is one line and,
