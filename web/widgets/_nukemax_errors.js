@@ -40,12 +40,18 @@ const RULES = [
    "Cancelled."],
 ];
 
-export function humaniseError(raw) {
-  if (!raw) return "Something went wrong.";
-  const text = String(raw);
+export function humaniseError(raw, message) {
+  if (!raw && typeof message !== "string") return "Something went wrong.";
+  const text = String(raw || message || "");
   for (const [re, msg] of RULES) {
     const m = text.match(re);
     if (m) return typeof msg === "function" ? msg(m) : msg;
+  }
+  // L9.80 slice 3: with the exception's own message (ComfyUI's execution_error.exception_message) no rule matched,
+  // so the node's message is the plain-English answer. Never a traceback line: the kit joins the message FIRST, and
+  // the last-line fallback below then showed "raise WriteError(f'...{len(exi..." on the node.
+  if (typeof message === "string" && message.trim()) {
+    return message.split(/\r?\n/).map((l) => l.trim()).find(Boolean);
   }
   // Fall back to the last meaningful line of the traceback - the exception
   // itself - rather than the first line, which is always "Traceback...".

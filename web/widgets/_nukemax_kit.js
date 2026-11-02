@@ -128,6 +128,10 @@ export function attachKit(node, nodeData) {
   st.status = ui.status;
 
   const w = node.addDOMWidget("nukemax_status", "div", ui.el, { serialize: false, margin: 2 });
+  // L9.102: options.serialize is not enough - the front end checks w.serialize. A saved status value made
+  // widgets_values one longer, and on a node with exactly one forceInput that length matched the front end's
+  // legacy test (migrateWidgetsValues), which then dropped a REAL value: every load shifted the widgets.
+  w.serialize = false;
   // One compact row. It must never push the node taller than it needs.
   // ComfyUI insets a DOM widget by `margin` on every side (default 10), so a
   // 15px slot left the 14px strip -5px of room: it hung ~9px past the node's
@@ -151,6 +155,20 @@ app.registerExtension({
       const r = onCreated?.apply(this, arguments);
       try { attachKit(this, nodeData); } catch (e) { /* never break the node */ }
       return r;
+    };
+
+    // L9.102: workflows saved before the fix carry one trailing status value. Drop it BEFORE the front end's own
+    // configure runs migrateWidgetsValues, so those saves restore every value in its place.
+    const configure = nodeType.prototype.configure;
+    nodeType.prototype.configure = function (info) {
+      try {
+        const vals = info?.widgets_values;
+        if (Array.isArray(vals) && Array.isArray(this.widgets)) {
+          const n = this.widgets.filter((w) => w && w.serialize !== false).length;
+          if (vals.length === n + 1) info = { ...info, widgets_values: vals.slice(0, n) };
+        }
+      } catch (e) { /* never break a load */ }
+      return configure.call(this, info);
     };
 
     const onExecuted = nodeType.prototype.onExecuted;
@@ -184,7 +202,7 @@ app.registerExtension({
       const raw = [detail?.exception_message, ...(detail?.traceback || [])]
         .filter(Boolean).join("\n");
       st.fullError = raw;                       // full text on hover, for a report
-      setStatus(st, humaniseError(raw), "error");
+      setStatus(st, humaniseError(raw, detail?.exception_message), "error");
       node.setDirtyCanvas(true, true);
     });
 
