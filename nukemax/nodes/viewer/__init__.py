@@ -206,10 +206,14 @@ def _write_previews(result: torch.Tensor) -> list:
         return []
 
 
+from .viewer_pro import NukeMax_ViewerPro  # noqa: E402 - L9.80 slice 7a (Rev 3 Part 19.12)
+
 NODE_CLASS_MAPPINGS = {
-    "NukeMax_Viewer": NukeMax_Viewer,
+    "NukeMax_Viewer": NukeMax_Viewer,          # legacy: its output carries the viewed adjustment (documented)
+    "NukeMax_ViewerPro": NukeMax_ViewerPro,    # view only: the output is the input unless Apply is pressed
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "NukeMax_Viewer": "Viewer (NukeMax)",
+    "NukeMax_ViewerPro": "NukeMax Viewer Pro",
 }

@@ -413,6 +413,31 @@ Every NukeMax image node that runs without a model was measured on an HDR ramp (
 - **Stock ComfyUI:** VAE Decode clamps to 0..1 (`comfy/sd.py`), and Save / Preview Image write 8-bit. Use Write EXR
   Pro or NukeMax Write to keep float.
 
+## NukeMax Viewer Pro (2026-11-02)
+
+A viewer on the node (Part 19.12). **It views; it never processes.** Its output is its input, untouched. Exposure,
+gamma, gain, channel and display change only what you see; they are saved with the workflow but never sent to the
+graph. To bake a view into the output, press **Apply view to output**: it copies exposure, gamma and gain into the
+node's inputs and turns `apply_view_adjustment` on. The panel says VIEW ONLY or APPLIED.
+
+- **View:** Fit, 1:1 (one source pixel per screen pixel), zoom (wheel at the cursor), pan (drag), double-click to fit.
+- **Channels:** RGB, R, G, B, A, luma. Alpha is shown over a checkerboard.
+- **Adjust the view:** exposure in stops, gamma, gain; the display is sRGB or raw.
+- **Exact values:** hovering shows the proxy value; a click returns the exact full-resolution value (HDR and
+  negatives included).
+- **Timeline:** first / previous / play / next / last, loop and scrub, with frame number, timecode, fps and duration.
+  Frame numbers come from NukeMax Read or Read EXR Pro.
+- **Frame info:** size, peak and floor values, and how many pixels are above 1.0 or below 0.
+- **Performance:**
+  - It writes float16 proxies (long side ≤ 960) and the full-resolution frames (for exact values) to ComfyUI's temp
+    folder.
+  - A disk budget (`NUKEMAX_VIEWER_CACHE_MB`, default 2048) removes the oldest stores first.
+  - The browser keeps at most 64 frames.
+- Scopes, false colour, A/B compare, audio and the OCIO display / view player are the next steps.
+
+The older **Viewer (NukeMax)** is unchanged: its output carries its gain / gamma / channel. Use Viewer Pro when the
+output must stay the input.
+
 ## Fixes 2026-11-02 (status line)
 
 - A NukeMax node with no preview kept "running…" after the run. It now shows how long it ran.

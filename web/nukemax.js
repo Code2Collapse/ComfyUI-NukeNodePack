@@ -22,6 +22,7 @@ import "./widgets/mocha/upload.js";
 import "./widgets/io/exr_preview.js";
 import "./widgets/hdr/hdr_scope.js";
 import "./widgets/viewer/viewer_panel.js";
+import "./widgets/viewer/viewer_pro.js";        // L9.80 slice 7a: NukeMax Viewer Pro (view only)
 
 app.registerExtension({
     name: "NukeMax.Base",
