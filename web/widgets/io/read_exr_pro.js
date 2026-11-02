@@ -7,7 +7,7 @@
 //   Refresh list  re-reads the input folder's EXRs (GET /nukemax/media/exr_files).
 // The workflow saves the input-relative name, never a path from the user's computer. Status is shown on the node.
 
-import { app } from "../../scripts/app.js";
+import { app } from "../../../../scripts/app.js";
 
 const TYPE = "NukeMax_ReadEXRPro";
 
@@ -41,25 +41,22 @@ async function upload(node) {
     input.onchange = async () => {
         const files = [...(input.files || [])].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
         if (!files.length) return;
+        // ONE request for the whole selection: the server versions a re-uploaded sequence as a whole (shot_1.1001.exr ...)
+        setStatus(node, `Uploading ${files.length} file(s)…`);
+        const body = new FormData();
+        for (const f of files) body.append("file", f, f.name);
         let first = null, done = 0;
         const notes = [];
-        for (const f of files) {
-            setStatus(node, `Uploading ${done + 1} of ${files.length}: ${f.name}`);
-            const body = new FormData();
-            body.append("file", f, f.name);
-            try {
-                const r = await fetch("/nukemax/media/upload", { method: "POST", body });
-                const j = await r.json();
-                if (!r.ok) { notes.push(j.error || `${f.name}: refused (${r.status})`); continue; }
-                first = first ?? j.name;
-                done += 1;
-                if (j.status !== "uploaded") notes.push(`${f.name}: ${j.status}`);
-            } catch (e) {
-                notes.push(`${f.name}: ${e?.message || e}`);
-            }
+        try {
+            const r = await fetch("/nukemax/media/upload", { method: "POST", body });
+            const j = await r.json();
+            if (!r.ok) notes.push(j.error || `refused (${r.status})`);
+            else { first = j.name; done = (j.names || []).length; if (j.status) notes.push(j.status); }
+        } catch (e) {
+            notes.push(String(e?.message || e));
         }
         await refresh(node, first);
-        setStatus(node, `${done} of ${files.length} uploaded` + (notes.length ? ` - ${notes.slice(0, 3).join("; ")}` : ""));
+        setStatus(node, `${done} of ${files.length} uploaded` + (notes.length ? ` - ${notes.join("; ")}` : ""));
         if (files.length > 1) {
             const m = node.widgets?.find((x) => x.name === "mode");
             if (m && m.value === "file (input folder)") { m.value = "sequence (input folder)"; m.callback?.(m.value); }

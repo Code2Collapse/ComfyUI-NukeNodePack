@@ -107,28 +107,59 @@ def safe_name(name: str) -> str:
 
 
 def save_upload(name: str, data: bytes, overwrite: bool = False) -> dict:
-    """Store an uploaded EXR in input/nukemax_exr/: the name sanitised, the content checked (EXR magic number), an
-    identical file reused, a different one with the same name kept beside it (name_1.exr) unless ``overwrite``."""
-    if not data.startswith(EXR_MAGIC):
-        raise ValueError(f"{name}: not an OpenEXR file (the first bytes are not the EXR magic number).")
+    """One uploaded EXR: the batch rule for a batch of one (see save_batch)."""
+    return save_batch([(name, data)], overwrite)
+
+
+_FRAME = re.compile(r"^(.*?)([._-]?)(\d+)(\.exr)$", re.I)
+
+
+def _versioned(fname: str, k: int) -> str:
+    """name with version k BEFORE its frame number (shot.1001.exr -> shot_1.1001.exr), so a sequence stays one."""
+    m = _FRAME.match(fname)
+    if m and m.group(1):
+        return f"{m.group(1)}_{k}{m.group(2)}{m.group(3)}{m.group(4)}"
+    stem, ext = os.path.splitext(fname)
+    return f"{stem}_{k}{ext}"
+
+
+def save_batch(items: list[tuple[str, bytes]], overwrite: bool = False) -> dict:
+    """Store several uploaded EXRs (a sequence) as ONE batch in input/nukemax_exr/. Identical files are reused. When any
+    name is taken by a DIFFERENT file, the whole batch gets one version suffix before the frame number (never a mix of
+    old and new frames, never a silent overwrite unless ``overwrite``)."""
+    for name, data in items:
+        if not data.startswith(EXR_MAGIC):
+            raise ValueError(f"{name}: not an OpenEXR file (the first bytes are not the EXR magic number).")
     folder = os.path.join(_folder_paths().get_input_directory(), UPLOAD_SUBFOLDER)
     os.makedirs(folder, exist_ok=True)
-    fname = safe_name(name)
-    stem, ext = os.path.splitext(fname)
-    target, k = os.path.join(folder, fname), 0
-    digest = hashlib.sha256(data).hexdigest()
-    while os.path.exists(target) and not overwrite:
-        with open(target, "rb") as f:
-            if hashlib.sha256(f.read()).hexdigest() == digest:
-                return {"name": f"{UPLOAD_SUBFOLDER}/{os.path.basename(target)}", "status": "already uploaded"}
-        k += 1
-        target = os.path.join(folder, f"{stem}_{k}{ext}")
-    tmp = target + ".part"
-    with open(tmp, "wb") as f:
-        f.write(data)
-    os.replace(tmp, target)
-    return {"name": f"{UPLOAD_SUBFOLDER}/{os.path.basename(target)}", "status": "uploaded" if not k else "uploaded "
-            "beside a different file of the same name"}
+    names = [safe_name(n) for n, _ in items]
+
+    def clash(fname: str, data: bytes) -> bool:
+        t = os.path.join(folder, fname)
+        if not os.path.exists(t):
+            return False
+        with open(t, "rb") as f:
+            return hashlib.sha256(f.read()).digest() != hashlib.sha256(data).digest()
+
+    k = 0
+    if not overwrite:
+        while any(clash(_versioned(n, k) if k else n, d) for n, (_, d) in zip(names, items)):
+            k += 1
+    stored, reused = [], 0
+    for n, (_, data) in zip(names, items):
+        fname = _versioned(n, k) if k else n
+        target = os.path.join(folder, fname)
+        if os.path.exists(target) and not clash(fname, data):
+            reused += 1
+        else:
+            tmp = target + ".part"
+            with open(tmp, "wb") as f:
+                f.write(data)
+            os.replace(tmp, target)
+        stored.append(f"{UPLOAD_SUBFOLDER}/{fname}")
+    status = f"{len(stored)} stored" + (f", {reused} already there" if reused else "") + \
+        (f" - names were taken by other files, so this upload is version _{k}" if k else "")
+    return {"names": stored, "name": stored[0] if stored else "", "status": status, "version": k}
 
 
 def _preview(img: torch.Tensor) -> dict | None:
@@ -246,11 +277,11 @@ def _register_routes():
     async def _upload(request):
         try:
             reader = await request.multipart()
-            data, name, overwrite = b"", "upload.exr", False
+            items, overwrite = [], False
             limit = int(os.environ.get("NUKEMAX_UPLOAD_MAX_MB", "4096")) * 1024 * 1024
             async for part in reader:
-                if part.name == "file":
-                    name = part.filename or name
+                if part.name == "file":                      # one or many (every frame of a sequence)
+                    name = part.filename or "upload.exr"
                     chunks, size = [], 0
                     while True:
                         c = await part.read_chunk(1 << 20)
@@ -261,10 +292,12 @@ def _register_routes():
                             return web.json_response({"error": f"{name} is larger than the upload limit "
                                                                f"(NUKEMAX_UPLOAD_MAX_MB)."}, status=413)
                         chunks.append(c)
-                    data = b"".join(chunks)
+                    items.append((name, b"".join(chunks)))
                 elif part.name == "overwrite":
                     overwrite = (await part.text()).strip().lower() in ("1", "true", "yes")
-            return web.json_response(save_upload(name, data, overwrite))
+            if not items:
+                return web.json_response({"error": "no file in the upload."}, status=400)
+            return web.json_response(save_batch(items, overwrite))
         except ValueError as exc:
             return web.json_response({"error": str(exc)}, status=400)
 

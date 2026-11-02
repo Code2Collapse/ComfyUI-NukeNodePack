@@ -260,8 +260,10 @@ A production EXR reader (Rev 3 Part 19.4), not a typed path.
 
 **Picking the file**
 - *Upload EXR…*: one file, or every frame of a sequence (multi-select). The content is checked (EXR magic number),
-  the name is cleaned, and the file is stored in `input/nukemax_exr/`. An identical file is reused; a different one
-  with the same name is kept beside it, never overwritten.
+  the name is cleaned, and the files are stored in `input/nukemax_exr/` as one batch.
+  - An identical file is reused.
+  - When a name is taken by a DIFFERENT file, the whole batch gets a version before the frame number
+    (`shot_1.1001.exr`, `shot_1.1002.exr` …): a re-uploaded sequence stays a sequence, and nothing is overwritten.
 - `mode`: *file*, *sequence* (the whole sequence from any one of its frames, with `frame_range` such as
   `1001-1100`), or *server path*. A server path is held to the C2C media roots when other machines can reach this
   server.
