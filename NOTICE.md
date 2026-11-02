@@ -134,3 +134,10 @@ in PyTorch under its own BSD license.
 
 Optical-flow estimation in `nukemax/nodes/flow/flow_field.py` uses standard
 PyTorch and OpenCV algorithms. No code is copied from proprietary sources.
+
+## Vendored: c2c_core (Apache-2.0)
+
+`nukemax/vendor/c2c_core/` is a byte-identical copy of `c2c_core/` from ComfyUI-CustomNodePacks (Code2Collapse,
+Apache-2.0; licence text in `nukemax/vendor/c2c_core-LICENSE.txt`). It is the media engine: lazy video and EXR
+sequence handles, the probe, the window reader and EXR passes. Apache-2.0 code may be included in this GPL-3.0-only
+pack. See `nukemax/vendor/VENDORED.md`.
