@@ -68,6 +68,18 @@ async function upload(node) {
 app.registerExtension({
     name: "NukeMax.ReadEXRPro",
     nodeCreated(node) {
+        if (node.comfyClass === "NukeMax_EXRMetadataReaderPro") {
+            // Part 19.5's header inspector: the node's summary (sizes, windows, parts, channels, layers) on the node
+            const box = node.addWidget("text", "header summary", "(run the node)", () => {}, { serialize: false, multiline: true });
+            if (box) { box.serialize = false; box.disabled = true; }
+            const prev = node.onExecuted;
+            node.onExecuted = function (message) {
+                prev?.apply(this, arguments);
+                const t = message?.text;
+                if (box && t) { box.value = Array.isArray(t) ? t.join("\n") : String(t); node.setDirtyCanvas?.(true, true); }
+            };
+            return;
+        }
         if (node.comfyClass !== TYPE) return;
         // none of these is saved: values are restored by POSITION on fe 1.53, so an extra saved widget would shift them
         const b1 = node.addWidget("button", "Upload EXR…", null, () => upload(node), { serialize: false });

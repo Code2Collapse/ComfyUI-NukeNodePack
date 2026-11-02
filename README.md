@@ -279,3 +279,14 @@ A production EXR reader (Rev 3 Part 19.4), not a typed path.
 A changed file or sequence member re-runs the node.
 
 It runs on the vendored C2C media engine, so it reads EXR exactly as Load Video (C2C) does.
+
+**NukeMax EXR Metadata Reader Pro** (Part 19.5) reads an EXR's headers without decoding a pixel.
+- Outputs: size, data and display windows, channels with their types, compression, parts, bit depth, colour
+  information and timecode, as separate values and as JSON.
+- A summary is shown on the node.
+
+**NukeMax EXR Pass Reader** (Part 19.6) loads a multipart / multilayer EXR or its sequence.
+- Outputs: the beauty, every pass as one bundle (NukeMax Shuffle Pass takes any of them), the pass names, and up to
+  four named passes as their own outputs (`pass_1`…`pass_4`). Each is decoded only when named.
+
+For uploaded files, every output names the input-relative file, never this machine's path.

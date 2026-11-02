@@ -32,8 +32,15 @@ from .read_exr_pro import (
     NODE_DISPLAY_NAME_MAPPINGS as _READPRO_D,
 )
 
-NODE_CLASS_MAPPINGS = {**_EXRMETA_C, **_EXRROUTER_C, **_EXRSEQ_C, **_MULTIPASS_C, **_VIDEO_C, **_READPRO_C}
-NODE_DISPLAY_NAME_MAPPINGS = {**_EXRMETA_D, **_EXRROUTER_D, **_EXRSEQ_D, **_MULTIPASS_D, **_VIDEO_D, **_READPRO_D}
+from .exr_inspect_pro import (
+    NODE_CLASS_MAPPINGS as _INSPECTPRO_C,
+    NODE_DISPLAY_NAME_MAPPINGS as _INSPECTPRO_D,
+)
+
+NODE_CLASS_MAPPINGS = {**_EXRMETA_C, **_EXRROUTER_C, **_EXRSEQ_C, **_MULTIPASS_C, **_VIDEO_C, **_READPRO_C,
+                       **_INSPECTPRO_C}
+NODE_DISPLAY_NAME_MAPPINGS = {**_EXRMETA_D, **_EXRROUTER_D, **_EXRSEQ_D, **_MULTIPASS_D, **_VIDEO_D, **_READPRO_D,
+                              **_INSPECTPRO_D}
 
 # On-node EXR preview routes. Guarded and idempotent: importing this package
 # outside a running ComfyUI (the test harness does exactly that) must not fail,

@@ -81,6 +81,21 @@ def resolve(mode: str, file: str, server_path: str) -> str:
     return p
 
 
+def rel_to_input(text):
+    """An absolute path inside ComfyUI's input folder as its input-relative name (outputs never carry the machine's
+    paths for uploaded media); anything else unchanged."""
+    if not isinstance(text, str) or not text:
+        return text
+    try:
+        root = os.path.realpath(_folder_paths().get_input_directory())
+        p = os.path.realpath(text)
+        if os.path.commonpath([root, p]) == root:
+            return os.path.relpath(p, root).replace(os.sep, "/")
+    except Exception:  # noqa: BLE001 - not a path on this machine
+        pass
+    return text
+
+
 def fingerprint(path: str, mode: str) -> str:
     """Size + modification time of the file, or of every member of its sequence."""
     files = [path]
@@ -245,7 +260,8 @@ class NukeMax_ReadEXRPro:
         meta = {
             "path": path if mode == "server path" else str(file),
             "mode": mode, "frames": n, "size": [int(handle.width), int(handle.height)],
-            "media": facts.to_dict(),
+            "media": {k: (rel_to_input(v) if k in ("path", "pattern") and mode != "server path" else v)
+                      for k, v in facts.to_dict().items()},
             "header": getattr(info, "header", {}) if info is not None else {},
             "range": range_notes,
             "values": {"min": round(float(image.min()), 6), "max": round(float(image.max()), 6),
