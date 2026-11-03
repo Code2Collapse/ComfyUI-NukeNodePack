@@ -25,10 +25,20 @@ from . import (
     AudioFeatures,
     FlowField,
     NukePasses,
+    DeepImage,
+    MochaTrack,
+    MochaLens,
+    MochaProject,
 )
 
 
+# A22 L9.124: DeepImage and the three Mocha types were missing here, so every Deserialize DEEP_IMAGE / MOCHA_* node
+# raised KeyError and their Serialize nodes wrote payloads nothing could read back.
 _TYPE_REGISTRY = {
+    "DeepImage": DeepImage,
+    "MochaTrack": MochaTrack,
+    "MochaLens": MochaLens,
+    "MochaProject": MochaProject,
     "RotoShape": RotoShape,
     "TrackingData": TrackingData,
     "FFTTensor": FFTTensor,
@@ -83,6 +93,8 @@ def _dec_value(v: Any) -> Any:
         return {k: _dec_value(val) for k, val in v["__dict__"].items()}
     if isinstance(v, list):
         return [_dec_value(x) for x in v]
+    if isinstance(v, dict):                    # a plain dict (e.g. a Mocha shape descriptor): decode what it holds
+        return {k: _dec_value(x) for k, x in v.items()}
     return v
 
 
@@ -109,6 +121,10 @@ def _from_dict(d: dict) -> Any:
                 kwargs[tk] = tuple(kwargs[tk])
     if cls is NukePasses:
         kwargs["channel_names"] = tuple(kwargs.get("channel_names", ()))
+    if cls is MochaProject:                    # frozen dataclass with tuple fields; JSON turned them into lists
+        kwargs["layers"] = tuple(tuple(x) if isinstance(x, list) else x for x in kwargs.get("layers", ()))
+        kwargs["tracks"] = tuple(kwargs.get("tracks", ()))
+        kwargs["shapes"] = tuple(kwargs.get("shapes", ()))
     return cls(**kwargs)
 
 

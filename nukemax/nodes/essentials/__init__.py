@@ -523,7 +523,9 @@ class Transform:
             sky = float(skew_y) * 3.14159265 / 180.0
             tan_x, tan_y = float(torch.tan(torch.tensor(skx))), float(torch.tan(torch.tensor(sky)))
             cf, sf = float(cos), float(sin)
-            a_inv = [[sx * cf + tan_y * sx * sf, sx * sf], [sy * sf + tan_x * sy * cf, sy * cf]]
+            # A22 L9.124: the second row read `sy * sf + ...`; it must be -sin like the legacy path (S^-1 R(-theta)),
+            # or a rotation squashed the picture (singular at 45 degrees) whenever a centre / skew / axis scale was set.
+            a_inv = [[sx * cf + tan_y * sx * sf, sx * sf], [-sy * sf + tan_x * sy * cf, sy * cf]]
             # a centre given in pixel-edge coordinates is pixel-centre cx - 0.5 (what the old formula meant)
             c = (float(center_x) - 0.5 if center_x >= 0 else (W - 1) * 0.5,
                  float(center_y) - 0.5 if center_y >= 0 else (H - 1) * 0.5)
