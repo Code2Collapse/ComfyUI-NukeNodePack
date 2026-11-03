@@ -454,6 +454,31 @@ node's inputs and turns `apply_view_adjustment` on. The panel says VIEW ONLY or 
 The older **Viewer (NukeMax)** is unchanged: its output carries its gain / gamma / channel. Use Viewer Pro when the
 output must stay the input.
 
+## NukeMax Handoff (Nuke / Resolve) (2026-11-03)
+
+Hands rendered outputs to Nuke and DaVinci Resolve (Part 19.16). Writing an EXR is not a finished handoff: the node
+first re-checks every file each writer manifest names (size and SHA-256). A changed or missing file stops it, named in
+words, before anything is written.
+
+- **Inputs:** up to four writer manifests (Write EXR Pro, Write, OCIO Write), the `ocio_config` socket, and shot facts
+  (project, sequence, shot, artist, notes).
+- **Package:** `nukemax_handoff/<name>_handoff_v###/`, versioned and written atomically.
+  - `handoff.json`: for each output, its kind, pattern, frame range, fps, size, channels, pixel type, compression,
+    colour interpretation and OCIO config. Also the shot facts and the tool versions.
+  - `<name>.nk`: a Nuke script. The Root sets the frame range, fps, format and OCIO colour management (a built-in
+    `ocio://` config needs Nuke 15 or later); there is one Read per output, with its colorspace.
+  - `<name>.otio`: an OpenTimelineIO timeline. Resolve imports it with File > Import > Timeline.
+  - `contact_sheet.png`: the first, middle and last frame of each output, read back from disk.
+  - `ocio/`: a file-based OCIO config and its LUT folders, copied.
+  - `README.txt`.
+- **Checked here:** the `.otio` loads in OpenTimelineIO 0.18. The `.nk` has been checked for structure, but not yet
+  opened in Nuke.
+
+**Versions and ComfyUI's cache.** By default ComfyUI 0.39 re-runs every node on each queue: its RAM-pressure cache drops
+the previous run's results. A versioned writer (Write EXR Pro, Write, Handoff) therefore writes a new version every
+time you queue, as ComfyUI's own Save Image saves a new file. To reuse unchanged results, start ComfyUI with
+`--cache-classic`. To replace instead of versioning, set `versioning` to plain names and turn `overwrite` on.
+
 ## Fixes 2026-11-02 (status line)
 
 - A NukeMax node with no preview kept "running…" after the run. It now shows how long it ran.

@@ -55,6 +55,12 @@ from .ocio_rw import (
     NODE_DISPLAY_NAME_MAPPINGS as _OCIORW_D,
 )
 
+# L9.80 slice 8 (Part 19.16): the DCC handoff (Nuke script, OTIO, manifest, contact sheet, OCIO)
+from .handoff import (
+    NODE_CLASS_MAPPINGS as _HANDOFF_C,
+    NODE_DISPLAY_NAME_MAPPINGS as _HANDOFF_D,
+)
+
 # L9.80 slice 3 (Part 19.7): the safe, versioned, atomic EXR writer
 from .write_exr_pro import (
     NODE_CLASS_MAPPINGS as _WRITEPRO_C,
@@ -62,9 +68,9 @@ from .write_exr_pro import (
 )
 
 NODE_CLASS_MAPPINGS = {**_EXRMETA_C, **_EXRROUTER_C, **_EXRSEQ_C, **_MULTIPASS_C, **_VIDEO_C, **_READPRO_C,
-                       **_INSPECTPRO_C, **_WRITEPRO_C, **_READ_C, **_WRITE_C, **_OCIORW_C}
+                       **_INSPECTPRO_C, **_WRITEPRO_C, **_READ_C, **_WRITE_C, **_OCIORW_C, **_HANDOFF_C}
 NODE_DISPLAY_NAME_MAPPINGS = {**_EXRMETA_D, **_EXRROUTER_D, **_EXRSEQ_D, **_MULTIPASS_D, **_VIDEO_D, **_READPRO_D,
-                              **_INSPECTPRO_D, **_WRITEPRO_D, **_READ_D, **_WRITE_D, **_OCIORW_D}
+                              **_INSPECTPRO_D, **_WRITEPRO_D, **_READ_D, **_WRITE_D, **_OCIORW_D, **_HANDOFF_D}
 
 # On-node EXR preview routes. Guarded and idempotent: importing this package
 # outside a running ComfyUI (the test harness does exactly that) must not fail,

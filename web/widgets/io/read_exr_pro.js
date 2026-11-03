@@ -97,6 +97,7 @@ app.registerExtension({
             NukeMax_Write: "written files",              // 19.8, slice 4b: the same confirmation
             NukeMax_OCIOConfigManager: "config summary", // 19.10, slice 5a: source, working space, missing LUTs
             NukeMax_OCIOWrite: "written files",          // 19.10, slice 5b
+            NukeMax_Handoff: "handoff package",          // 19.16, slice 8: what was re-checked and written
         };
         if (BOXES[node.comfyClass]) {
             // a real read-only textarea (ComfyUI's multiline STRING widget): a LiteGraph "text" widget is one line and,
