@@ -228,6 +228,11 @@ ComfyUI with this pack and fails on an import failure, no registered node, or a 
 ## Notes
 
 - `types_io.py` intentionally exposes empty mappings; types are registered by their owning category modules.
+- Serialize / Deserialize (fixed 2026-11-03): every custom type round-trips through workflow JSON, including Deep
+  Image and the Mocha track, lens and project types. Before, their Deserialize nodes always failed.
+- Transform (fixed 2026-11-03): a rotation with a centre, skew or per-axis scale set now rotates the picture. Before,
+  it squashed the picture, collapsing it entirely at 45 degrees. With only a centre set, the result equals the plain
+  path.
 - All temporal nodes operate batch-first (B = T), no per-frame Python loops in the hot path.
 - The dual-output discipline is enforced: classical VFX socket on the left, AI-consumable socket on the right, on every node where both are meaningful.
 - Works inside subgraphs: each node's run status and plain-English error, NkScript copy / paste and the Mocha file drop all follow nodes that live inside (nested) subgraphs.
