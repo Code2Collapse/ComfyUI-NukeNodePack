@@ -308,7 +308,8 @@ def _merge_op(op, A, B, a, b):
     if op == "minus":      return A - B                       # Nuke: A - B ("from" is B - A)
     if op == "from":       return B - A
     if op == "multiply":   return torch.where((A < 0) & (B < 0), A, A * B)
-    if op == "screen":     return torch.where((A <= 1) & (B <= 1), A + B - A * B, torch.maximum(A, B))
+    if op == "screen":     # Foundry: A+B-AB if 0<A<1 and 0<B<1, otherwise max(A,B)
+        return torch.where((A > 0) & (A < 1) & (B > 0) & (B < 1), A + B - A * B, torch.maximum(A, B))
     if op == "overlay":    return torch.where(B < 0.5, 2 * A * B, 1 - 2 * (1 - A) * (1 - B))
     if op == "hard_light": return torch.where(A < 0.5, 2 * A * B, 1 - 2 * (1 - A) * (1 - B))
     if op == "soft_light":
