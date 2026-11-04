@@ -64,6 +64,34 @@ def _mask_1c(mask, ref):
     return m
 
 
+def _frames_ok(n_a, n_b, what_a, what_b):
+    if n_a != n_b and 1 not in (n_a, n_b):
+        raise ValueError(f"{what_a} has {n_a} frames and {what_b} has {n_b}; give them the same count "
+                         "(or a single frame on one side).")
+
+
+def _match_b_to_a(A, B):
+    """A22 L9.124: B in A's format for Dissolve / Keymix - A's size (bilinear) and A's channels (a missing alpha
+    counts as 1, extra channels are dropped). Frame counts must match or one side be a single frame."""
+    _frames_ok(A.shape[0], B.shape[0], "A", "B")
+    B = B.to(device=A.device, dtype=A.dtype)
+    B = _match_hw(B, A)
+    ca, cb = A.shape[-1], B.shape[-1]
+    if cb < ca:
+        B = torch.cat([B, torch.ones(*B.shape[:-1], ca - cb, device=B.device, dtype=B.dtype)], dim=-1)
+    elif cb > ca:
+        B = B[..., :ca]
+    return B
+
+
+def _mask_like(mask, ref, what="the image"):
+    """MASK -> [Bm,H,W,1] at ref's size, device and dtype. Bm stays 1 or the mask's own count, so a still plate
+    with an animated mask (or a still mask on a clip) still broadcasts; other mismatches are explained."""
+    m = mask.unsqueeze(-1) if mask.dim() == 3 else mask[..., :1]
+    _frames_ok(m.shape[0], ref.shape[0], "the mask", what)
+    return _match_hw(m.to(device=ref.device, dtype=ref.dtype), ref)
+
+
 # ───────────────────────── helpers ─────────────────────────
 def _split(image):
     """-> (rgb [B,H,W,3], alpha [B,H,W,1] or None)."""
@@ -162,13 +190,7 @@ class Grade:
             out = out.clamp(max=1)
         w = float(mix)
         if mask is not None:
-            m = mask
-            if m.dim() == 3:
-                m = m.unsqueeze(-1)
-            if m.shape[1:3] != rgb.shape[1:3]:
-                m = F.interpolate(m.permute(0, 3, 1, 2).float(), size=rgb.shape[1:3], mode="bilinear",
-                                  align_corners=False).permute(0, 2, 3, 1)
-            w = m.to(rgb.dtype) * w
+            w = _mask_like(mask, rgb) * w
         if not (isinstance(w, float) and w == 1.0):
             out = rgb * (1 - w) + out * w
         return (_join(out, alpha),)
@@ -421,9 +443,7 @@ class Dissolve:
 
     def execute(self, A, B, which):
         require_image_bhwc(A); require_image_bhwc(B)
-        if B.shape != A.shape:
-            B = F.interpolate(B[..., :A.shape[-1]].permute(0, 3, 1, 2), size=A.shape[1:3],
-                              mode="bilinear", align_corners=False).permute(0, 2, 3, 1)
+        B = _match_b_to_a(A, B)
         w = float(which)
         return ((A * (1 - w) + B * w).contiguous(),)
 
@@ -446,15 +466,8 @@ class Keymix:
 
     def execute(self, A, B, mask):
         require_image_bhwc(A); require_image_bhwc(B)
-        if B.shape != A.shape:
-            B = F.interpolate(B[..., :A.shape[-1]].permute(0, 3, 1, 2), size=A.shape[1:3],
-                              mode="bilinear", align_corners=False).permute(0, 2, 3, 1)
-        m = mask
-        if m.dim() == 3:
-            m = m.unsqueeze(-1)
-        if m.shape[1:3] != A.shape[1:3]:
-            m = F.interpolate(m.permute(0, 3, 1, 2), size=A.shape[1:3], mode="bilinear",
-                              align_corners=False).permute(0, 2, 3, 1)
+        B = _match_b_to_a(A, B)
+        m = _mask_like(mask, A if A.shape[0] >= B.shape[0] else B, "the images")
         return ((A * m + B * (1 - m)).contiguous(),)
 
 

@@ -241,6 +241,15 @@ ComfyUI with this pack and fails on an import failure, no registered node, or a 
 - Text (fixed 2026-11-04) no longer clamps the plate, so a slate on an EXR keeps its highlights and negative values.
 - Median (fixed 2026-11-04) works one frame at a time in row strips, so large sizes on HD/4K plates no longer run out
   of memory (size 8 on one 1080p frame needed about 7 GB). The result is unchanged.
+- Merge screen (fixed 2026-11-04) follows Foundry's formula exactly: A+B-AB only where both A and B lie between 0
+  and 1, otherwise the larger one. Negative (footroom) values used to blend.
+- Sharpen and Median (fixed 2026-11-04) run on images smaller than their size (they raised a padding error).
+- Constant and Text colours (fixed 2026-11-04): a mistyped hex colour such as `#ff00zz` now stops with a message.
+  It used to turn black (or white) without a word.
+- Deserialize (fixed 2026-11-04) refuses a payload of another type and names the node to use.
+- Dissolve and Keymix (fixed 2026-11-04) accept an RGB B under an RGBA A (the missing alpha counts as 1). Different
+  frame counts now get a plain message; a still plate with an animated mask still works. Grade's mask gets the
+  same frame check.
 - All temporal nodes operate batch-first (B = T), no per-frame Python loops in the hot path.
 - The dual-output discipline is enforced: classical VFX socket on the left, AI-consumable socket on the right, on every node where both are meaningful.
 - Works inside subgraphs: each node's run status and plain-English error, NkScript copy / paste and the Mocha file drop all follow nodes that live inside (nested) subgraphs.
