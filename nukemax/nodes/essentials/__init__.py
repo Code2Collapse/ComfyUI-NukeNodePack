@@ -616,6 +616,16 @@ class Sharpen:
         return (_join(out, alpha),)
 
 
+_MEDIAN_BUDGET_BYTES = 256 * 1024 ** 2     # unfold working set per strip
+
+
+def _median_rows_per_strip(channels: int, radius: int, width: int, budget: int) -> int:
+    """Rows per strip so one unfold (C x k^2 x rows x W float32, about twice for the median) stays in budget."""
+    k = 2 * int(radius) + 1
+    per_row = max(1, int(channels) * k * k * int(width) * 4 * 2)
+    return max(1, int(budget) // per_row)
+
+
 @resilient
 class Median:
     DESCRIPTION = "Median filter (salt-and-pepper / grain denoise). size = window radius."
@@ -639,12 +649,19 @@ class Median:
         rgb, alpha = _split(image)
         x = rgb.permute(0, 3, 1, 2)
         k = 2 * r + 1
-        patches = F.unfold(F.pad(x, (r, r, r, r), mode="reflect"), kernel_size=k)
-        B, C = x.shape[0], x.shape[1]
-        patches = patches.view(B, C, k * k, -1)
-        med = patches.median(dim=2).values
-        out = med.view(B, C, x.shape[2], x.shape[3]).permute(0, 2, 3, 1)
-        return (_join(out, alpha),)
+        B, C, H, W = x.shape
+        padded = F.pad(x, (r, r, r, r), mode="reflect")
+        out = torch.empty_like(x)
+        # A22 L9.124: one frame at a time, in row strips. Unfolding the whole batch held B x C x k^2 x H x W floats
+        # (~7 GB per 1080p frame at size 8). The median of each window is the same, so the result is identical.
+        rows = _median_rows_per_strip(C, r, W, _MEDIAN_BUDGET_BYTES)
+        for b in range(B):
+            for y0 in range(0, H, rows):
+                y1 = min(H, y0 + rows)
+                strip = padded[b:b + 1, :, y0:y1 + 2 * r, :]
+                p = F.unfold(strip, kernel_size=k).view(1, C, k * k, -1)
+                out[b:b + 1, :, y0:y1, :] = p.median(dim=2).values.view(1, C, y1 - y0, W)
+        return (_join(out.permute(0, 2, 3, 1), alpha),)
 
 
 # ───────────────────────── Generators ─────────────────────────
