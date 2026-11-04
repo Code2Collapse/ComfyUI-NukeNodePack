@@ -439,14 +439,15 @@ class Text:
             layer = Image.new("L", (W, H), 0)
             d = ImageDraw.Draw(layer)
             d.multiline_text((px, py), str(text), fill=255, font=font, spacing=4)
-            m = torch.from_numpy(np.asarray(layer, dtype=np.float32) / 255.0).to(image.device, image.dtype) \
-                if _HAVE_CV2 else torch.tensor([[c_ / 255.0 for c_ in row] for row in layer.getdata()]).reshape(H, W).to(image.device, image.dtype)
+            # np.asarray reads a PIL "L" image with or without cv2 (A22 L9.137: the old no-cv2 branch iterated ints)
+            m = torch.from_numpy(np.asarray(layer, dtype=np.float32) / 255.0).to(image.device, image.dtype)
             matte[i] = m
             col = torch.tensor([r, g, b], device=image.device, dtype=image.dtype).view(1, 1, 3)
             out[i, ..., :3] = out[i, ..., :3] * (1 - m.unsqueeze(-1)) + col * m.unsqueeze(-1)
             if C >= 4:
                 out[i, ..., 3] = torch.maximum(out[i, ..., 3], m)
-        return (out.clamp(0, 1).contiguous(), matte)
+        # A22 L9.137: no clamp - the plate may be scene-linear HDR; only the text colour (0..1) is written in
+        return (out.contiguous(), matte)
 
 
 @resilient

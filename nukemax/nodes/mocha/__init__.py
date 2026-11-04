@@ -140,14 +140,15 @@ def _bchw_to_image(x: torch.Tensor) -> torch.Tensor:
 
 
 def _broadcast_T(tensor_T: torch.Tensor, B: int) -> torch.Tensor:
-    """Broadcast a (T,...) tensor onto B frames by clamping the index."""
+    """Broadcast a (T,...) tensor onto B frames by clamping the index: plate frame i uses track frame i, and a
+    plate longer than the track holds the last tracked frame. (A22 L9.137: this used to stretch the track over the
+    plate with linspace, so a 200-frame track on a 100-frame plate ran at double speed.)"""
     T = tensor_T.shape[0]
     if T == B:
         return tensor_T
     if T == 1:
         return tensor_T.expand(B, *tensor_T.shape[1:]).contiguous()
-    # Resample by nearest-frame index
-    idx = torch.linspace(0, T - 1, B).round().long().clamp_(0, T - 1)
+    idx = torch.arange(B).clamp_(max=T - 1)
     return tensor_T[idx].contiguous()
 
 
@@ -448,10 +449,24 @@ class MochaApplyTracking:
             poly_T = params  # (B,4,2) already
             mask = splines.rasterize_polygon_sdf(poly_T, out_h, out_w, feather=0.0, closed=True)
         else:
+            # A22 L9.137: a transform track maps the reference plate to the tracked plate (types/mocha_data.py), so
+            # the sampling map (output px -> source px) is its INVERSE. Sampling with the forward matrix moved the
+            # insert against the track and made Invert + Apply double the shake instead of cancelling it. The
+            # pixel-centre homography warp also handles an output size that differs from the source.
             params = _broadcast_T(track.params, B)
-            grid = _affine_to_grid(params, out_h, out_w)
-            warped = F.grid_sample(bchw.float(), grid, mode="bilinear", padding_mode="zeros", align_corners=False)
-            mask = torch.ones(B, out_h, out_w, dtype=torch.float32)
+            H_list = []
+            for t in range(B):
+                a, b, tx, c, d, ty = (float(v) for v in params[t].tolist())
+                M = torch.tensor([[a, b, tx], [c, d, ty], [0.0, 0.0, 1.0]], dtype=torch.float64)
+                if abs(a * d - b * c) < 1e-12:
+                    raise ValueError(f"Mocha Apply Tracking: the transform of frame {t} is degenerate (zero scale); "
+                                     "check the track export.")
+                H_list.append(torch.linalg.inv(M).to(torch.float32))
+            H_stack = torch.stack(H_list, dim=0)
+            warped = _homography_warp(bchw, H_stack, out_h, out_w)
+            # mask = where the warp has source data (it used to be all ones, so the padding pasted in as black)
+            ones = torch.ones(B, 1, H, W, dtype=warped.dtype, device=warped.device)
+            mask = _homography_warp(ones, H_stack, out_h, out_w)[:, 0].clamp(0.0, 1.0)
         return (_bchw_to_image(warped), mask)
 
 
@@ -685,8 +700,10 @@ def _build_distortion_grid(lens: MochaLens, mode: str) -> torch.Tensor:
     # Back to pixels and normalize for grid_sample
     src_x = x_d * lens.fx + lens.cx
     src_y = y_d * lens.fy + lens.cy
-    gx = 2 * src_x / max(W - 1, 1) - 1
-    gy = 2 * src_y / max(H - 1, 1) - 1
+    # pixel-centre coordinates with align_corners=False (as _homography_warp): x_n = (2x + 1)/W - 1. A22 L9.137:
+    # 2x/(W-1) - 1 darkened the border rows/columns to ~50% and resampled the frame slightly enlarged.
+    gx = (2 * src_x + 1) / max(W, 1) - 1
+    gy = (2 * src_y + 1) / max(H, 1) - 1
     return torch.stack([gx, gy], dim=-1).unsqueeze(0)
 
 
