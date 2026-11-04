@@ -86,6 +86,14 @@ def _make_deserialize(type_name: str):
             except json.JSONDecodeError as exc:
                 raise ValueError(f"Deserialize {type_name}: 'payload' is not valid JSON ({exc.msg} at line "
                                  f"{exc.lineno}, column {exc.colno}).") from exc
+            # A22 L9.124: a payload of another type came back as that type and failed later, far from here.
+            tag = d.get("__type__") if isinstance(d, dict) else None
+            if not isinstance(tag, str):
+                raise ValueError(f"Deserialize {type_name}: 'payload' is JSON but not a Serialize payload (it has no "
+                                 "'__type__'). Paste the text a Serialize node produced.")
+            if tag.upper() != type_name.replace("_", ""):
+                raise ValueError(f"Deserialize {type_name}: this payload holds a {tag}, not a {pretty}. Use the "
+                                 f"Deserialize node for {tag}.")
             return (ser_mod.deserialize(d),)
 
     _Deserialize.__name__ = f"Deserialize_{type_name}"

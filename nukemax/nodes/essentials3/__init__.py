@@ -49,16 +49,22 @@ def _luma(rgb):
     return rgb[..., 0] * _LUMA[0] + rgb[..., 1] * _LUMA[1] + rgb[..., 2] * _LUMA[2]
 
 
+_HEX_DIGITS = set("0123456789abcdefABCDEF")
+
+
 def _hex(s, default=(0.0, 0.0, 0.0)):
-    s = str(s).strip()
-    try:
-        if s.startswith("#"):
-            s = s[1:]
-        if len(s) == 3:
-            s = "".join(c * 2 for c in s)
-        return (int(s[0:2], 16) / 255.0, int(s[2:4], 16) / 255.0, int(s[4:6], 16) / 255.0)
-    except Exception:  # noqa: BLE001
+    """'#RGB', '#RRGGBB' or '#RRGGBBAA' (alpha ignored) -> 0..1 floats. Empty -> default.
+    A22 L9.124: a mistyped colour used to become the default (black) without a word; it now says what is wrong."""
+    raw = str(s if s is not None else "").strip()
+    h = raw[1:] if raw.startswith("#") else raw
+    if not h:
         return default
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    if len(h) not in (6, 8) or not set(h) <= _HEX_DIGITS:
+        raise ValueError(f"'{raw}' is not a hex colour. Write it as #RRGGBB, for example #FF8000 (orange) or "
+                         "#000000 (black).")
+    return (int(h[0:2], 16) / 255.0, int(h[2:4], 16) / 255.0, int(h[4:6], 16) / 255.0)
 
 
 def _gauss1d(n, sigma, device, dtype):

@@ -80,16 +80,22 @@ def _luma(rgb):
     return rgb[..., 0] * _LUMA[0] + rgb[..., 1] * _LUMA[1] + rgb[..., 2] * _LUMA[2]
 
 
+_HEX_DIGITS = set("0123456789abcdefABCDEF")
+
+
 def _hex(s, default=(0.0, 0.0, 0.0)):
-    s = str(s).strip()
-    try:
-        if s.startswith("#"):
-            s = s[1:]
-        if len(s) == 3:
-            s = "".join(c * 2 for c in s)
-        return (int(s[0:2], 16) / 255.0, int(s[2:4], 16) / 255.0, int(s[4:6], 16) / 255.0)
-    except Exception:  # noqa: BLE001
+    """'#RGB', '#RRGGBB' or '#RRGGBBAA' (alpha ignored) -> 0..1 floats. Empty -> default.
+    A22 L9.124: a mistyped colour used to become the default (black) without a word; it now says what is wrong."""
+    raw = str(s if s is not None else "").strip()
+    h = raw[1:] if raw.startswith("#") else raw
+    if not h:
         return default
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    if len(h) not in (6, 8) or not set(h) <= _HEX_DIGITS:
+        raise ValueError(f"'{raw}' is not a hex colour. Write it as #RRGGBB, for example #FF8000 (orange) or "
+                         "#000000 (black).")
+    return (int(h[0:2], 16) / 255.0, int(h[2:4], 16) / 255.0, int(h[4:6], 16) / 255.0)
 
 
 # ───────────────────────── Color ─────────────────────────
@@ -576,6 +582,16 @@ class Mirror:
 
 
 # ───────────────────────── Filter ─────────────────────────
+def _pad_edges(x, pads):
+    """Mirror padding (BCHW); edge-repeat where the image is not larger than the pad, where mirror padding cannot
+    run (A22 L9.124: a size-64 Sharpen or a size-8 Median on a small image raised a PyTorch padding error)."""
+    left, right, top, bottom = pads
+    H, W = x.shape[-2], x.shape[-1]
+    if max(left, right) < W and max(top, bottom) < H:
+        return F.pad(x, pads, mode="reflect")
+    return F.pad(x, pads, mode="replicate")
+
+
 def _gauss(img_bhwc, radius):
     if radius < 1:
         return img_bhwc
@@ -586,8 +602,8 @@ def _gauss(img_bhwc, radius):
     k = torch.exp(-(xs ** 2) / (2 * sigma * sigma)); k = k / k.sum()
     kh = k.view(1, 1, 1, -1).repeat(Cc, 1, 1, 1)
     kv = k.view(1, 1, -1, 1).repeat(Cc, 1, 1, 1)
-    x = F.conv2d(F.pad(x, (radius, radius, 0, 0), mode="reflect"), kh, groups=Cc)
-    x = F.conv2d(F.pad(x, (0, 0, radius, radius), mode="reflect"), kv, groups=Cc)
+    x = F.conv2d(_pad_edges(x, (radius, radius, 0, 0)), kh, groups=Cc)
+    x = F.conv2d(_pad_edges(x, (0, 0, radius, radius)), kv, groups=Cc)
     return x.permute(0, 2, 3, 1)
 
 
@@ -651,7 +667,7 @@ class Median:
         x = rgb.permute(0, 3, 1, 2)
         k = 2 * r + 1
         B, C, H, W = x.shape
-        padded = F.pad(x, (r, r, r, r), mode="reflect")
+        padded = _pad_edges(x, (r, r, r, r))
         out = torch.empty_like(x)
         # A22 L9.124: one frame at a time, in row strips. Unfolding the whole batch held B x C x k^2 x H x W floats
         # (~7 GB per 1080p frame at size 8). The median of each window is the same, so the result is identical.
