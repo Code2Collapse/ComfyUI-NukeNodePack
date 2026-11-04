@@ -239,6 +239,8 @@ ComfyUI with this pack and fails on an import failure, no registered node, or a 
   handled. A track longer or shorter than the plate is used frame for frame and holds its last frame (it was
   stretched in time). Apply Lens with zero distortion leaves the image unchanged (the border was darkened).
 - Text (fixed 2026-11-04) no longer clamps the plate, so a slate on an EXR keeps its highlights and negative values.
+- Median (fixed 2026-11-04) works one frame at a time in row strips, so large sizes on HD/4K plates no longer run out
+  of memory (size 8 on one 1080p frame needed about 7 GB). The result is unchanged.
 - All temporal nodes operate batch-first (B = T), no per-frame Python loops in the hot path.
 - The dual-output discipline is enforced: classical VFX socket on the left, AI-consumable socket on the right, on every node where both are meaningful.
 - Works inside subgraphs: each node's run status and plain-English error, NkScript copy / paste and the Mocha file drop all follow nodes that live inside (nested) subgraphs.
