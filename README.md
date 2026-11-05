@@ -258,6 +258,9 @@ ComfyUI with this pack and fails on an import failure, no registered node, or a 
   Text's `size` works without Arial installed (most Linux systems ignored it).
 - Difference and ZDefocus (fixed 2026-11-05) explain mismatched frame counts (same count, or one frame on one
   side); HDR Exposure Blend explains brackets of different sizes. Both used to fail with a raw tensor error.
+- Contact Sheet has a new `tile_scale` input (last; 1.0 = as before) and stops with a message when the sheet does
+  not fit in free memory. Mocha Apply Tracking: an output size of 0 uses the track's canvas, and a different
+  size is reported in the log (the pins are in canvas pixels).
 - Constant and Text colours (fixed 2026-11-04): a mistyped hex colour such as `#ff00zz` now stops with a message.
   It used to turn black (or white) without a word.
 - Deserialize (fixed 2026-11-04) refuses a payload of another type and names the node to use.

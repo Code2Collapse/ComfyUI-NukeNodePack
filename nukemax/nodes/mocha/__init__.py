@@ -446,8 +446,11 @@ class MochaApplyTracking:
         return {"required": {
             "source": ("IMAGE", {"tooltip": "Source plate to warp INTO the tracked region."}),
             "track": ("MOCHA_TRACK",),
-            "out_width": ("INT", {"default": 1920, "min": 1, "max": 16384}),
-            "out_height": ("INT", {"default": 1080, "min": 1, "max": 16384}),
+            # A22 L9.137: 0 = the track's canvas (the pins are in its pixels); the default stays 1920 x 1080
+            "out_width": ("INT", {"default": 1920, "min": 0, "max": 16384,
+                                  "tooltip": "Output width. 0 = the track's canvas width (the pins are in its pixels)."}),
+            "out_height": ("INT", {"default": 1080, "min": 0, "max": 16384,
+                                   "tooltip": "Output height. 0 = the track's canvas height."}),
         }}
 
     def execute(self, source, track: MochaTrack, out_width, out_height):
@@ -455,7 +458,13 @@ class MochaApplyTracking:
         bchw = _images_to_bchw(source)
         B = bchw.shape[0]
         H, W = bchw.shape[-2:]
-        out_h, out_w = int(out_height), int(out_width)
+        cw, ch = int(getattr(track, "canvas_w", 0) or 0), int(getattr(track, "canvas_h", 0) or 0)
+        out_w = int(out_width) if int(out_width) > 0 else (cw or W)
+        out_h = int(out_height) if int(out_height) > 0 else (ch or H)
+        if cw and ch and (out_w, out_h) != (cw, ch):
+            log.warning("Mocha Apply Tracking: output %dx%d but the track was made on a %dx%d canvas - the pins are "
+                        "in canvas pixels, so the insert may be misplaced or cropped. Set the size to 0 to use the "
+                        "track's canvas.", out_w, out_h, cw, ch)
         if track.kind == "corner_pin":
             params = _broadcast_T(track.params, B)
             # Source corners in source-image px space:

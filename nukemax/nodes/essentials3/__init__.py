@@ -363,13 +363,32 @@ class ContactSheet:
             "columns": ("INT", {"default": 0, "min": 0, "max": 64,
                                  "tooltip": "0 = auto (near-square)."}),
             "gap": ("INT", {"default": 4, "min": 0, "max": 256}),
+        }, "optional": {
+            # A22 L9.137, appended (1.0 = as before): the sheet holds as many pixels as the clip
+            "tile_scale": ("FLOAT", {"default": 1.0, "min": 0.05, "max": 1.0, "step": 0.05,
+                                     "tooltip": "Scale of each tile. Lower it for long clips: the sheet holds as many "
+                                                "pixels as the whole clip."}),
         }}
-    def execute(self, image, columns, gap):
+    def execute(self, image, columns, gap, tile_scale=1.0):
         require_image_bhwc(image)
+        if float(tile_scale) < 1.0:
+            th = max(1, int(round(image.shape[1] * float(tile_scale))))
+            tw = max(1, int(round(image.shape[2] * float(tile_scale))))
+            image = F.interpolate(image.permute(0, 3, 1, 2), size=(th, tw), mode="area").permute(0, 2, 3, 1)
         B, H, W, C = image.shape
         cols = int(columns) if columns > 0 else max(1, int(math.ceil(math.sqrt(B))))
         rows = int(math.ceil(B / cols))
         g = int(gap)
+        need = (rows * H + (rows - 1) * g) * (cols * W + (cols - 1) * g) * C * image.element_size()
+        if image.device.type == "cpu":
+            try:
+                import psutil
+                avail = int(psutil.virtual_memory().available)
+            except Exception:  # noqa: BLE001
+                avail = None
+            if avail is not None and need > avail * 0.9:
+                raise MemoryError(f"Contact Sheet: the sheet needs {need / 1e9:.1f} GB and {avail / 1e9:.1f} GB is "
+                                  "free. Lower tile_scale (or feed fewer frames).")
         sheet = torch.zeros(1, rows * H + (rows - 1) * g, cols * W + (cols - 1) * g, C,
                             device=image.device, dtype=image.dtype)
         if C >= 4:
