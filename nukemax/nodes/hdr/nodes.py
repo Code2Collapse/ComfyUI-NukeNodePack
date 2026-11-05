@@ -670,6 +670,11 @@ class HDRExposureBlend:
         mid_b = None
         if mid_exposure is not None:
             mid_b = tensor_to_numpy_float32(require_image_bhwc(mid_exposure))
+        # A22 L9.137: brackets of another size failed with a raw broadcast error
+        for nm, arr in (("high_exposure", high_b), ("mid_exposure", mid_b)):
+            if arr is not None and arr.shape[1:3] != low_b.shape[1:3]:
+                raise ValueError(f"HDR Exposure Blend: {nm} is {arr.shape[2]}x{arr.shape[1]} but low_exposure is "
+                                 f"{low_b.shape[2]}x{low_b.shape[1]}; the brackets must be the same size.")
 
         # A bracket set is usually a SEQUENCE. The ported code took [0] and
         # dropped the rest silently. Frame counts may legitimately differ - a

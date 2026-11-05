@@ -20,6 +20,7 @@ from ...utils.resilience import resilient
 from ..._tensor_util import require_image_bhwc
 from ..._is_changed_util import hash_args_and_kwargs
 from ..._tensor_util import reflect_pad
+from ..._tensor_util import check_frame_counts
 
 try:
     import cv2
@@ -255,6 +256,7 @@ class Difference:
                 "threshold": ("FLOAT", {"default": 0.05, "min": 0.0, "max": 1.0, "step": 0.005})}}
     def execute(self, image, clean_plate, gain, threshold):
         require_image_bhwc(image); require_image_bhwc(clean_plate)
+        check_frame_counts(image.shape[0], clean_plate.shape[0], "image", "clean_plate")
         a = image[..., :3]; b = clean_plate[..., :3]
         if b.shape[1:3] != a.shape[1:3]:
             b = F.interpolate(b.permute(0, 3, 1, 2), size=a.shape[1:3], mode="bilinear", align_corners=False).permute(0, 2, 3, 1)

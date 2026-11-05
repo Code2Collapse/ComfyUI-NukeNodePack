@@ -19,6 +19,7 @@ from ...utils.resilience import resilient
 from ..._tensor_util import require_image_bhwc
 from ..._is_changed_util import hash_args_and_kwargs
 from ..._tensor_util import reflect_pad
+from ..._tensor_util import check_frame_counts
 
 try:
     import cv2
@@ -262,6 +263,7 @@ class ZDefocus:
         }}
     def execute(self, image, depth, focus_depth, max_blur, layers):
         require_image_bhwc(image)
+        check_frame_counts(image.shape[0], depth.shape[0], "image", "depth")   # A22 L9.137
         rgb, a = _split(image)
         d = _luma(depth[..., :3]) if depth.shape[-1] >= 3 else depth[..., 0]
         if d.shape[1:3] != rgb.shape[1:3]:

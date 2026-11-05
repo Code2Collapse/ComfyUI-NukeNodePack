@@ -26,3 +26,12 @@ def reflect_pad(x: torch.Tensor, pads) -> torch.Tensor:
             ok = False
             break
     return F.pad(x, pads, mode="reflect" if ok else "replicate")
+
+
+def check_frame_counts(n_a: int, n_b: int, what_a: str, what_b: str) -> None:
+    """Two batches work together when their frame counts match or one side is a single frame (it is held on every
+    frame). Anything else is explained here instead of a raw tensor broadcast error (A22 L9.137)."""
+    n_a, n_b = int(n_a), int(n_b)
+    if n_a != n_b and 1 not in (n_a, n_b):
+        raise ValueError(f"{what_a} has {n_a} frames and {what_b} has {n_b}; give them the same number of frames, "
+                         "or a single frame on one side.")
