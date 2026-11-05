@@ -250,6 +250,9 @@ ComfyUI with this pack and fails on an import failure, no registered node, or a 
   returned the input, or ran global equalisation, without a word). Vignette with a negative amount no longer
   pulls values above 1.0 down. The Mocha file nodes re-run when the file is re-exported under the same name.
   HDR Exposure Blend's Laplacian Pyramid no longer leaks colour between channels.
+- HDR Color Correct, Expand Dynamic Range, Tone Map, Shadow/Highlight Recovery and Highlight Synthesis
+  (fixed 2026-11-05) leave alpha alone on an RGBA image (for example from Multipass Read in `rgba` mode).
+  Before, exposure +1 doubled the alpha, and the tone map and saturation changed it too.
 - Constant and Text colours (fixed 2026-11-04): a mistyped hex colour such as `#ff00zz` now stops with a message.
   It used to turn black (or white) without a word.
 - Deserialize (fixed 2026-11-04) refuses a payload of another type and names the node to use.

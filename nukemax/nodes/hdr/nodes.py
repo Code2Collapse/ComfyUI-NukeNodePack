@@ -42,6 +42,23 @@ from ...utils.resilience import resilient
 _CATEGORY = "NukeMax/HDR"
 
 
+def _rgb_only(fn):
+    """A22 L9.137 P1: run an HDR op on RGB and pass a 4th (alpha) channel through untouched. Multipass Read
+    (channel_mode 'rgba') emits RGBA IMAGEs; the ops ran on every channel, so exposure +1 doubled alpha, the tone
+    map gamma'd it and saturation mixed it with luma."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(self, image, *args, **kwargs):
+        if isinstance(image, torch.Tensor) and image.dim() == 4 and image.shape[-1] == 4:
+            alpha = image[..., 3:4]
+            out = fn(self, image[..., :3], *args, **kwargs)
+            img = out[0]
+            return (torch.cat([img, alpha.to(device=img.device, dtype=img.dtype)], dim=-1),) + tuple(out[1:])
+        return fn(self, image, *args, **kwargs)
+    return wrapper
+
+
 @resilient
 class HDRImageToFloat32:
     DESCRIPTION = "Promote images to float32 scene-linear; optional per-frame normalize (HDR values may exceed 1.0)."
@@ -147,6 +164,7 @@ class HDRFloat32ColorCorrect:
             },
         }
 
+    @_rgb_only
     def execute(
         self,
         image,
@@ -224,6 +242,7 @@ class HDRExpandDynamicRange:
             }
         }
 
+    @_rgb_only
     def execute(
         self,
         image,
@@ -353,6 +372,7 @@ class HDRToneMap:
             },
         }
 
+    @_rgb_only
     def execute(
         self,
         image,
@@ -773,6 +793,7 @@ class HDRShadowHighlightRecovery:
             },
         }
 
+    @_rgb_only
     def execute(
         self,
         image,
@@ -840,6 +861,7 @@ class HDRHighlightSynthesis:
             }
         }
 
+    @_rgb_only
     def execute(
         self,
         image,
