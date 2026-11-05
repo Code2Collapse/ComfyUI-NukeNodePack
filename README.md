@@ -263,7 +263,7 @@ ComfyUI with this pack and fails on an import failure, no registered node, or a 
   size is reported in the log (the pins are in canvas pixels).
 - HDR Histogram (2026-11-05) measures one frame at a time: same scope and numbers, much less memory
   (24 frames of 960x540: 748 MB extra before, 26 MB now).
-- Defocus (2026-11-05) uses an FFT for sizes from 16: same picture, size 128 on a 1080p frame in about 0.2 s (was 10.6 s on the CPU).
+- Defocus (2026-11-05) uses an FFT for sizes from 16: same picture, size 128 on a 1080p frame in 0.06 s (was 11.2 s, measured on this CPU).
 - Constant and Text colours (fixed 2026-11-04): a mistyped hex colour such as `#ff00zz` now stops with a message.
   It used to turn black (or white) without a word.
 - Deserialize (fixed 2026-11-04) refuses a payload of another type and names the node to use.
