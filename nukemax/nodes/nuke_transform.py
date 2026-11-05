@@ -24,6 +24,7 @@ import torch.nn.functional as F
 
 from .._is_changed_util import hash_args_and_kwargs
 from ._comp_linear import parse_floats, require_image
+from .._tensor_util import reflect_pad
 
 _FILTERS = ("bilinear", "nearest", "bicubic")
 _EDGES = ("black", "edge", "reflection")
@@ -176,7 +177,7 @@ class Matrix:
         x = src.permute(0, 3, 1, 2)
         c = x.shape[1]
         r = k // 2
-        y = F.conv2d(F.pad(x, (r, r, r, r), mode="reflect"), kt.repeat(c, 1, 1, 1), groups=c)
+        y = F.conv2d(reflect_pad(x, (r, r, r, r)), kt.repeat(c, 1, 1, 1), groups=c)
         out = y.permute(0, 2, 3, 1)
 
         f = float(mix)

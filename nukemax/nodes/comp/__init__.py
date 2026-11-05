@@ -14,6 +14,7 @@ import torch.nn.functional as F
 from ...utils.resilience import resilient
 from ..._tensor_util import require_image_bhwc
 from ..._is_changed_util import hash_args_and_kwargs
+from ..._tensor_util import reflect_pad
 
 _LUMA = (0.2126, 0.7152, 0.0722)
 
@@ -43,8 +44,8 @@ def _blur(img_bhwc, radius: int):
     k = _gauss_kernel(radius, x.device, x.dtype)
     kh = k.view(1, 1, 1, -1).repeat(C, 1, 1, 1)
     kv = k.view(1, 1, -1, 1).repeat(C, 1, 1, 1)
-    x = F.conv2d(F.pad(x, (radius, radius, 0, 0), mode="reflect"), kh, groups=C)
-    x = F.conv2d(F.pad(x, (0, 0, radius, radius), mode="reflect"), kv, groups=C)
+    x = F.conv2d(reflect_pad(x, (radius, radius, 0, 0)), kh, groups=C)
+    x = F.conv2d(reflect_pad(x, (0, 0, radius, radius)), kv, groups=C)
     return _bhwc(x)
 
 

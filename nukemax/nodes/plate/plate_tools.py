@@ -24,6 +24,7 @@ from ... import _progress as _PB
 from ...utils.resilience import resilient
 from ..._tensor_util import require_image_bhwc
 from ..._is_changed_util import hash_args_and_kwargs
+from ..._tensor_util import reflect_pad
 logger = logging.getLogger("MEC.PlateTools")
 
 
@@ -50,7 +51,7 @@ def _denoise_box(t: torch.Tensor, k: int = 5) -> torch.Tensor:
     pad = k // 2
     x = t.permute(0, 3, 1, 2)
     weight = torch.ones(x.shape[1], 1, k, k, device=x.device, dtype=x.dtype) / (k * k)
-    x = torch.nn.functional.pad(x, (pad, pad, pad, pad), mode="reflect")
+    x = reflect_pad(x, (pad, pad, pad, pad))
     x = torch.nn.functional.conv2d(x, weight, groups=x.shape[1])
     return x.permute(0, 2, 3, 1)
 

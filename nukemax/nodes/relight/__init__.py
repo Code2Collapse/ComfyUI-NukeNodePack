@@ -25,6 +25,7 @@ from ...types import Light, LightProbe, LightRig, MaterialSet
 from ...utils.resilience import resilient
 from ..._tensor_util import require_image_bhwc
 from ..._is_changed_util import hash_args_and_kwargs
+from ..._tensor_util import reflect_pad
 
 
 @resilient
@@ -62,8 +63,8 @@ class MaterialDecomposerHeuristic:
         Y = luminance(x)
         kx = torch.tensor([[-0.5, 0, 0.5]], dtype=x.dtype, device=x.device).view(1, 1, 1, 3)
         ky = kx.transpose(-1, -2)
-        gx = F.conv2d(F.pad(Y, (1, 1, 0, 0), mode="reflect"), kx)
-        gy = F.conv2d(F.pad(Y, (0, 0, 1, 1), mode="reflect"), ky)
+        gx = F.conv2d(reflect_pad(Y, (1, 1, 0, 0)), kx)
+        gy = F.conv2d(reflect_pad(Y, (0, 0, 1, 1)), ky)
         nz = torch.ones_like(Y)
         n = torch.cat([-gx * depth_strength, -gy * depth_strength, nz], dim=1)
         n = n / n.norm(dim=1, keepdim=True).clamp_min(1e-6)

@@ -13,6 +13,7 @@ from ...types import FlowField
 from ...utils.resilience import resilient
 from ..._tensor_util import require_image_bhwc
 from ..._is_changed_util import hash_args_and_kwargs
+from ..._tensor_util import reflect_pad
 
 
 def _farneback_like_flow(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -37,14 +38,14 @@ def _farneback_like_flow(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             warped = nflow.backward_warp(bi, flow_l)
             kx = torch.tensor([[-0.5, 0, 0.5]], dtype=ai.dtype, device=ai.device).view(1, 1, 1, 3)
             ky = kx.transpose(-1, -2)
-            Ix = F.conv2d(F.pad(ai, (1, 1, 0, 0), mode="reflect"), kx)
-            Iy = F.conv2d(F.pad(ai, (0, 0, 1, 1), mode="reflect"), ky)
+            Ix = F.conv2d(reflect_pad(ai, (1, 1, 0, 0)), kx)
+            Iy = F.conv2d(reflect_pad(ai, (0, 0, 1, 1)), ky)
             It = warped - ai
             ksz = 5
             kn = torch.ones(1, 1, ksz, ksz, device=ai.device, dtype=ai.dtype)
             pad = ksz // 2
             def cv(x):
-                return F.conv2d(F.pad(x, (pad, pad, pad, pad), mode="reflect"), kn)
+                return F.conv2d(reflect_pad(x, (pad, pad, pad, pad)), kn)
             A11 = cv(Ix * Ix); A12 = cv(Ix * Iy); A22 = cv(Iy * Iy)
             b1 = -cv(Ix * It); b2 = -cv(Iy * It)
             det = (A11 * A22 - A12 * A12).clamp_min(1e-6)

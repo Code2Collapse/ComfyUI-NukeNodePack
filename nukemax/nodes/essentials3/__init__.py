@@ -18,6 +18,7 @@ import torch.nn.functional as F
 from ...utils.resilience import resilient
 from ..._tensor_util import require_image_bhwc
 from ..._is_changed_util import hash_args_and_kwargs
+from ..._tensor_util import reflect_pad
 
 try:
     import cv2
@@ -84,10 +85,10 @@ def _sep_blur(img_bhwc, rx, ry):
     Cc = x.shape[1]
     if rx >= 1:
         kx = _gauss1d(rx, max(0.5, rx / 2.0), x.device, x.dtype).view(1, 1, 1, -1).repeat(Cc, 1, 1, 1)
-        x = F.conv2d(F.pad(x, (rx, rx, 0, 0), mode="reflect"), kx, groups=Cc)
+        x = F.conv2d(reflect_pad(x, (rx, rx, 0, 0)), kx, groups=Cc)
     if ry >= 1:
         ky = _gauss1d(ry, max(0.5, ry / 2.0), x.device, x.dtype).view(1, 1, -1, 1).repeat(Cc, 1, 1, 1)
-        x = F.conv2d(F.pad(x, (0, 0, ry, ry), mode="reflect"), ky, groups=Cc)
+        x = F.conv2d(reflect_pad(x, (0, 0, ry, ry)), ky, groups=Cc)
     return x.permute(0, 2, 3, 1)
 
 
@@ -96,7 +97,7 @@ def _conv3x3(img_bhwc, kernel):
     x = img_bhwc.permute(0, 3, 1, 2)
     Cc = x.shape[1]
     k = torch.tensor(kernel, device=x.device, dtype=x.dtype).view(1, 1, 3, 3).repeat(Cc, 1, 1, 1)
-    x = F.conv2d(F.pad(x, (1, 1, 1, 1), mode="reflect"), k, groups=Cc)
+    x = F.conv2d(reflect_pad(x, (1, 1, 1, 1)), k, groups=Cc)
     return x.permute(0, 2, 3, 1)
 
 
@@ -229,7 +230,7 @@ class Bilateral:
         r = int(size)
         x = rgb.permute(0, 3, 1, 2)
         B, Cc, H, W = x.shape
-        xp = F.pad(x, (r, r, r, r), mode="reflect")
+        xp = reflect_pad(x, (r, r, r, r))
         acc = torch.zeros_like(x); wsum = torch.zeros(B, 1, H, W, device=x.device, dtype=x.dtype)
         for dy in range(-r, r + 1):
             for dx in range(-r, r + 1):

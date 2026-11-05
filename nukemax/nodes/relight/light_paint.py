@@ -19,6 +19,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image, ImageDraw, ImageFont
+from ..._tensor_util import reflect_pad
 
 # SciPy does the mask blur, the rim-light distance transform and the occlusion
 # smoothing. It is guarded because NukeMax's aggregator catches an import
@@ -454,13 +455,13 @@ class ReLight(io.ComfyNode):
         if radius_x > 0:
             kernel_x = cls._gaussian_kernel_1d(radius_x, sigma, device)
             work = F.conv2d(
-                F.pad(work, (radius_x, radius_x, 0, 0), mode="reflect"),
+                reflect_pad(work, (radius_x, radius_x, 0, 0)),
                 kernel_x.view(1, 1, 1, -1),
             )
         if radius_y > 0:
             kernel_y = cls._gaussian_kernel_1d(radius_y, sigma, device)
             work = F.conv2d(
-                F.pad(work, (0, 0, radius_y, radius_y), mode="reflect"),
+                reflect_pad(work, (0, 0, radius_y, radius_y)),
                 kernel_y.view(1, 1, -1, 1),
             )
 

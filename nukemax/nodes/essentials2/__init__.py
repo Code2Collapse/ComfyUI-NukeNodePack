@@ -19,6 +19,7 @@ import torch.nn.functional as F
 from ...utils.resilience import resilient
 from ..._tensor_util import require_image_bhwc
 from ..._is_changed_util import hash_args_and_kwargs
+from ..._tensor_util import reflect_pad
 
 try:
     import cv2
@@ -66,8 +67,8 @@ def _gauss(img_bhwc, radius):
     k = torch.exp(-(xs ** 2) / (2 * sigma * sigma)); k = k / k.sum()
     kh = k.view(1, 1, 1, -1).repeat(Cc, 1, 1, 1)
     kv = k.view(1, 1, -1, 1).repeat(Cc, 1, 1, 1)
-    x = F.conv2d(F.pad(x, (radius, radius, 0, 0), mode="reflect"), kh, groups=Cc)
-    x = F.conv2d(F.pad(x, (0, 0, radius, radius), mode="reflect"), kv, groups=Cc)
+    x = F.conv2d(reflect_pad(x, (radius, radius, 0, 0)), kh, groups=Cc)
+    x = F.conv2d(reflect_pad(x, (0, 0, radius, radius)), kv, groups=Cc)
     return x.permute(0, 2, 3, 1)
 
 
@@ -308,7 +309,7 @@ class Defocus:
         disc = ((xs.float() ** 2 + ys.float() ** 2) <= (r * r)).float()
         disc = (disc / disc.sum()).to(x.dtype)
         k = disc.view(1, 1, 2 * r + 1, 2 * r + 1).repeat(C, 1, 1, 1)
-        x = F.conv2d(F.pad(x, (r, r, r, r), mode="reflect"), k, groups=C)
+        x = F.conv2d(reflect_pad(x, (r, r, r, r)), k, groups=C)
         return (_join(x.permute(0, 2, 3, 1), a),)
 
 

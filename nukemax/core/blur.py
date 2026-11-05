@@ -5,6 +5,7 @@ import math
 
 import torch
 import torch.nn.functional as F
+from .._tensor_util import reflect_pad
 
 
 def gaussian_kernel_1d(sigma: float, dtype=torch.float32, device=None, truncate: float = 4.0) -> torch.Tensor:
@@ -37,9 +38,9 @@ def gaussian_blur(img: torch.Tensor, sigma: float, truncate: float = 4.0) -> tor
     pad = radius
     kx = k.view(1, 1, 1, -1).expand(C, 1, 1, k.shape[0])
     ky = k.view(1, 1, -1, 1).expand(C, 1, k.shape[0], 1)
-    x = F.pad(img, (pad, pad, 0, 0), mode="reflect")
+    x = reflect_pad(img, (pad, pad, 0, 0))
     x = F.conv2d(x, kx, groups=C)
-    x = F.pad(x, (0, 0, pad, pad), mode="reflect")
+    x = reflect_pad(x, (0, 0, pad, pad))
     x = F.conv2d(x, ky, groups=C)
     return x
 

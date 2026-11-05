@@ -10,6 +10,7 @@ from ...types import TrackingData
 from ...utils.resilience import resilient
 from ..._tensor_util import require_image_bhwc
 from ..._is_changed_util import hash_args_and_kwargs
+from ..._tensor_util import reflect_pad
 
 
 def _mask_to_bchw(m: torch.Tensor) -> torch.Tensor:
@@ -166,8 +167,8 @@ class SubPixelEdgeDetect:
         x = luminance(to_bchw(image))
         kx = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=x.dtype, device=x.device).view(1, 1, 3, 3)
         ky = kx.transpose(-1, -2)
-        gx = F.conv2d(F.pad(x, (1, 1, 1, 1), mode="reflect"), kx)
-        gy = F.conv2d(F.pad(x, (1, 1, 1, 1), mode="reflect"), ky)
+        gx = F.conv2d(reflect_pad(x, (1, 1, 1, 1)), kx)
+        gy = F.conv2d(reflect_pad(x, (1, 1, 1, 1)), ky)
         mag = (gx * gx + gy * gy).sqrt()
         mag_n = mag / mag.amax(dim=(-1, -2), keepdim=True).clamp_min(1e-6)
         B, _, H, W = mag_n.shape
@@ -225,9 +226,9 @@ class HairAwareChoke:
         # Local stddev as hair indicator
         kernel = torch.ones(1, 1, hair_window, hair_window, device=y.device, dtype=y.dtype) / (hair_window ** 2)
         pad = hair_window // 2
-        y_pad = F.pad(y, (pad, pad, pad, pad), mode="reflect")
+        y_pad = reflect_pad(y, (pad, pad, pad, pad))
         mu = F.conv2d(y_pad, kernel)
-        mu2 = F.conv2d(F.pad(y * y, (pad, pad, pad, pad), mode="reflect"), kernel)
+        mu2 = F.conv2d(reflect_pad(y * y, (pad, pad, pad, pad)), kernel)
         std = (mu2 - mu * mu).clamp_min(0).sqrt()
         std_n = std / std.amax(dim=(-1, -2), keepdim=True).clamp_min(1e-6)
         # Distance-field-style choke via small box-blur trick

@@ -244,6 +244,8 @@ ComfyUI with this pack and fails on an import failure, no registered node, or a 
 - Merge screen (fixed 2026-11-04) follows Foundry's formula exactly: A+B-AB only where both A and B lie between 0
   and 1, otherwise the larger one. Negative (footroom) values used to blend.
 - Sharpen and Median (fixed 2026-11-04) run on images smaller than their size (they raised a padding error).
+  The same fix now covers every NukeMax filter that mirrors the image edge (2026-11-05): blurs, edge detect,
+  flow, relight, plate tools and the rest repeat the edge where the image is too small to mirror.
 - Constant and Text colours (fixed 2026-11-04): a mistyped hex colour such as `#ff00zz` now stops with a message.
   It used to turn black (or white) without a word.
 - Deserialize (fixed 2026-11-04) refuses a payload of another type and names the node to use.

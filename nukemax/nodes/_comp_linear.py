@@ -19,6 +19,7 @@ from typing import Sequence
 
 import torch
 import torch.nn.functional as F
+from .._tensor_util import reflect_pad
 
 # Rec.709 luminance weights. Correct for linear scene-referred RGB.
 LUMA_709 = (0.2126, 0.7152, 0.0722)
@@ -274,10 +275,10 @@ def separable_blur(img_bhwc: torch.Tensor, rx: float, ry: float) -> torch.Tensor
 
     if rxi >= 1:
         kx = _k(rxi).view(1, 1, 1, -1).repeat(c, 1, 1, 1)
-        x = F.conv2d(F.pad(x, (rxi, rxi, 0, 0), mode="reflect"), kx, groups=c)
+        x = F.conv2d(reflect_pad(x, (rxi, rxi, 0, 0)), kx, groups=c)
     if ryi >= 1:
         ky = _k(ryi).view(1, 1, -1, 1).repeat(c, 1, 1, 1)
-        x = F.conv2d(F.pad(x, (0, 0, ryi, ryi), mode="reflect"), ky, groups=c)
+        x = F.conv2d(reflect_pad(x, (0, 0, ryi, ryi)), ky, groups=c)
     return x.permute(0, 2, 3, 1).contiguous()
 
 

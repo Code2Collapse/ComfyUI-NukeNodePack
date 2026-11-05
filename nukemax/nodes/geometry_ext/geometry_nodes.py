@@ -14,6 +14,7 @@ import torch
 from ...utils.resilience import resilient
 from ..._tensor_util import require_image_bhwc
 from ..._is_changed_util import hash_args_and_kwargs
+from ..._tensor_util import reflect_pad
 
 logger = logging.getLogger("MEC.Geometry")
 
@@ -119,7 +120,7 @@ class NormalToCurvatureMEC:
         # Central differences with reflect-pad
         def cd(a: torch.Tensor, axis: int) -> torch.Tensor:
             x = a.unsqueeze(1)  # [B,1,H,W]
-            x = torch.nn.functional.pad(x, (1, 1, 1, 1), mode="reflect")
+            x = reflect_pad(x, (1, 1, 1, 1))
             if axis == 0:  # along H
                 d = x[:, :, 2:, 1:-1] - x[:, :, :-2, 1:-1]
             else:  # along W

@@ -28,6 +28,7 @@ import torch.nn.functional as F
 from ...utils.resilience import resilient
 from ..._tensor_util import require_image_bhwc
 from ..._is_changed_util import hash_args_and_kwargs
+from ..._tensor_util import reflect_pad
 
 _LUMA = (0.2126, 0.7152, 0.0722)
 
@@ -601,7 +602,7 @@ def _pad_edges(x, pads):
     left, right, top, bottom = pads
     H, W = x.shape[-2], x.shape[-1]
     if max(left, right) < W and max(top, bottom) < H:
-        return F.pad(x, pads, mode="reflect")
+        return reflect_pad(x, pads)
     return F.pad(x, pads, mode="replicate")
 
 
