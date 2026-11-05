@@ -261,6 +261,8 @@ ComfyUI with this pack and fails on an import failure, no registered node, or a 
 - Contact Sheet has a new `tile_scale` input (last; 1.0 = as before) and stops with a message when the sheet does
   not fit in free memory. Mocha Apply Tracking: an output size of 0 uses the track's canvas, and a different
   size is reported in the log (the pins are in canvas pixels).
+- HDR Histogram (2026-11-05) measures one frame at a time: same scope and numbers, much less memory
+  (24 frames of 960x540: 748 MB extra before, 26 MB now).
 - Constant and Text colours (fixed 2026-11-04): a mistyped hex colour such as `#ff00zz` now stops with a message.
   It used to turn black (or white) without a word.
 - Deserialize (fixed 2026-11-04) refuses a payload of another type and names the node to use.

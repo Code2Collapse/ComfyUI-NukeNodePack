@@ -462,19 +462,37 @@ class HDRHistogram:
         # A scope that silently reads only frame 0 is worse than no scope:
         # it reports a sequence is in range when a LATER frame is blown.
         # Measure the whole batch.
-        img_b = tensor_to_numpy_float32(require_image_bhwc(image))
-        frame_count = int(img_b.shape[0])
-        img = np.nan_to_num(img_b, nan=0.0, posinf=65504.0, neginf=-65504.0)
-        luma = rec709_luminance(img) if img.shape[-1] >= 3 else img[..., 0]
-        min_val = float(np.min(img))
-        max_val = float(np.max(img))
-        mean_val = float(np.mean(img))
+        # A22 L9.137: measured frame by frame. The whole-batch version held several full copies at once (numpy copy,
+        # nan_to_num, the positive-values mask and copy, flattened channels, the axis transform) - 120 frames of 4K
+        # did not fit. The numbers are the same; the bins are identical.
+        src = require_image_bhwc(image)
+        frame_count = int(src.shape[0])
+        nch = int(src.shape[-1])
+
+        def _frame_np(i):
+            f = src[i].detach().cpu().float().numpy()
+            return np.nan_to_num(f, nan=0.0, posinf=65504.0, neginf=-65504.0)
+
+        min_val, max_val, total, count = float("inf"), float("-inf"), 0.0, 0
         eps = 1e-10
-        positive = img[img > 0]
-        min_positive = float(positive.min()) if positive.size else eps
+        min_positive, n_low, n_high = float("inf"), 0, 0
+        for _i in range(frame_count):
+            f = _frame_np(_i)
+            min_val = min(min_val, float(f.min()))
+            max_val = max(max_val, float(f.max()))
+            total += float(f.sum(dtype=np.float64))
+            count += f.size
+            pos = f[f > 0]
+            if pos.size:
+                min_positive = min(min_positive, float(pos.min()))
+            n_low += int(np.count_nonzero(f <= 0))
+            n_high += int(np.count_nonzero(f >= 1))
+        mean_val = total / max(count, 1)
+        if min_positive == float("inf"):
+            min_positive = eps
         dynamic_range = math.log2(max(max_val, eps) / max(min_positive, eps))
-        clip_low = float(np.sum(img <= 0) / img.size * 100)
-        clip_high = float(np.sum(img >= 1) / img.size * 100)
+        clip_low = float(n_low / max(count, 1) * 100)
+        clip_high = float(n_high / max(count, 1) * 100)
         scope = "1 frame" if frame_count == 1 else f"{frame_count} frames"
         stats = (
             f"Min: {min_val:.6f}  Max: {max_val:.6f}  Mean: {mean_val:.6f}\n"
@@ -503,14 +521,22 @@ class HDRHistogram:
             def to_axis(v):
                 return v
         # L9.39: rgb drew the red channel alone
-        if mode == "luminance" or img.shape[-1] < 3:
-            series = [("L", luma.flatten(), (233, 69, 96))]
+        if mode == "luminance" or nch < 3:
+            names = [("L", (233, 69, 96))]
         else:
-            series = [("R", img[..., 0].flatten(), (235, 80, 80)), ("G", img[..., 1].flatten(), (90, 200, 110)),
-                      ("B", img[..., 2].flatten(), (90, 140, 240))]
-        # out-of-range values pile up in the end bins (a scope shows them as clipped, not missing)
-        hists = [(name, np.histogram(np.clip(to_axis(v), lo_hi[0], lo_hi[1]), bins=num_bins, range=lo_hi)[0], col)
-                 for name, v, col in series]
+            names = [("R", (235, 80, 80)), ("G", (90, 200, 110)), ("B", (90, 140, 240))]
+        acc = [np.zeros(num_bins, dtype=np.int64) for _ in names]
+        for _i in range(frame_count):
+            f = _frame_np(_i)
+            if len(names) == 1:
+                chans = [rec709_luminance(f) if nch >= 3 else f[..., 0]]
+            else:
+                chans = [f[..., 0], f[..., 1], f[..., 2]]
+            for k, v in enumerate(chans):
+                # out-of-range values pile up in the end bins (a scope shows them as clipped, not missing)
+                acc[k] += np.histogram(np.clip(to_axis(v.ravel()), lo_hi[0], lo_hi[1]), bins=num_bins,
+                                       range=lo_hi)[0]
+        hists = [(name, acc[k], col) for k, (name, col) in enumerate(names)]
         hist_vals = hists[0][1] if len(hists) == 1 else np.max(np.stack([h for _, h, _ in hists]), axis=0)
         max_count = max(int(hist_vals.max()), 1)
         for _name, hv, col in hists:
