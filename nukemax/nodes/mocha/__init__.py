@@ -45,6 +45,17 @@ def _input_dir() -> str:
 
 
 def _resolve_path(p: str) -> str:
+    """The file a Mocha node reads (see _find_path), held to the C2C media roots when the server listens on an address
+    other machines can reach (A22 L9.137 - the same rule as C2C Load Video, D0.35). A local server reads any path."""
+    found = _find_path(p)
+    from ...vendor.c2c_core import media_roots as _roots
+    msg = _roots.check_run_path(found)
+    if msg:
+        raise ValueError(f"Mocha: {msg}")
+    return found
+
+
+def _find_path(p: str) -> str:
     """Resolve an input path: accept absolute, or a bare filename living under
     ComfyUI/input/mocha/ (where the upload endpoint stores files)."""
     if not p:

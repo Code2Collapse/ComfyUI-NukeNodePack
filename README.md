@@ -264,6 +264,9 @@ ComfyUI with this pack and fails on an import failure, no registered node, or a 
 - HDR Histogram (2026-11-05) measures one frame at a time: same scope and numbers, much less memory
   (24 frames of 960x540: 748 MB extra before, 26 MB now).
 - Defocus (2026-11-05) uses an FFT for sizes from 16: same picture, size 128 on a 1080p frame in 0.06 s (was 11.2 s, measured on this CPU).
+- Mocha file nodes (2026-11-05): on a server reachable from other machines (`--listen`), the file must be inside
+  the C2C media roots (input, output, temp, or a folder in `C2C_MEDIA_ROOTS` / `c2c_media_roots.txt`), as for
+  C2C Load Video. A local server reads any path, as before.
 - Constant and Text colours (fixed 2026-11-04): a mistyped hex colour such as `#ff00zz` now stops with a message.
   It used to turn black (or white) without a word.
 - Deserialize (fixed 2026-11-04) refuses a payload of another type and names the node to use.
