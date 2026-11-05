@@ -440,7 +440,11 @@ class Text:
         try:
             font = ImageFont.truetype("arial.ttf", int(size))
         except Exception:  # noqa: BLE001
-            font = ImageFont.load_default()
+            # A22 L9.137: without arial.ttf (most Linux installs) load_default() ignored `size`; Pillow >= 10.1 takes it
+            try:
+                font = ImageFont.load_default(size=int(size))
+            except TypeError:
+                font = ImageFont.load_default()
         px, py = int(x * W), int(y * H)
         for i in range(B):
             layer = Image.new("L", (W, H), 0)

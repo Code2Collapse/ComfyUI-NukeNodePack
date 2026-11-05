@@ -232,13 +232,17 @@ def _homography_warp(image_bchw: torch.Tensor, H_per_frame: torch.Tensor, out_h:
     if Bp != B:
         # Broadcast
         H_per_frame = _broadcast_T(H_per_frame, B)
+    # A22 L9.137: the grid is built on the image's device in float32 and sampling runs in float32 (it was a CPU
+    # grid, and image and grid were cast to each other's dtype - fp16 or CUDA IMAGEs failed)
+    dev = image_bchw.device
     yy, xx = torch.meshgrid(
-        torch.arange(out_h, dtype=torch.float32),
-        torch.arange(out_w, dtype=torch.float32),
+        torch.arange(out_h, dtype=torch.float32, device=dev),
+        torch.arange(out_w, dtype=torch.float32, device=dev),
         indexing="ij",
     )
     ones = torch.ones_like(xx)
     pts = torch.stack([xx, yy, ones], dim=-1)        # (Hout,Wout,3)
+    H_per_frame = H_per_frame.to(device=dev, dtype=torch.float32)
     out = []
     for t in range(B):
         H = H_per_frame[t]
@@ -253,9 +257,9 @@ def _homography_warp(image_bchw: torch.Tensor, H_per_frame: torch.Tensor, out_h:
         gy = (2 * src_y + 1) / max(in_h, 1) - 1
         grid = torch.stack([gx, gy], dim=-1).unsqueeze(0)
         warped = F.grid_sample(
-            image_bchw[t:t + 1].to(grid.dtype), grid.to(image_bchw.dtype),
+            image_bchw[t:t + 1].float(), grid,
             mode="bilinear", padding_mode="zeros", align_corners=False,
-        )
+        ).to(image_bchw.dtype)
         out.append(warped)
     return torch.cat(out, dim=0)
 
@@ -773,8 +777,10 @@ class MochaApplyLens:
                 canvas_h=H, canvas_w=W,
             )
         grid = _build_distortion_grid(lens, mode)
-        grid = grid.expand(B, -1, -1, -1).to(bchw.dtype)
-        out = F.grid_sample(bchw, grid, mode="bilinear", padding_mode="zeros", align_corners=False)
+        # A22 L9.137: grid on the image's device, sampling in float32, output in the input dtype
+        grid = grid.to(device=bchw.device, dtype=torch.float32).expand(B, -1, -1, -1)
+        out = F.grid_sample(bchw.float(), grid, mode="bilinear", padding_mode="zeros",
+                            align_corners=False).to(bchw.dtype)
         return (_bchw_to_image(out),)
 
 

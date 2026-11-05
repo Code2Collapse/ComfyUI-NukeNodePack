@@ -253,6 +253,9 @@ ComfyUI with this pack and fails on an import failure, no registered node, or a 
 - HDR Color Correct, Expand Dynamic Range, Tone Map, Shadow/Highlight Recovery and Highlight Synthesis
   (fixed 2026-11-05) leave alpha alone on an RGBA image (for example from Multipass Read in `rgba` mode).
   Before, exposure +1 doubled the alpha, and the tone map and saturation changed it too.
+- Mocha Apply Tracking / Apply Lens and Defocus (fixed 2026-11-05) take half-precision images, and build their
+  sampling grids and kernel on the image's device (a GPU image failed; the GPU case is not yet run here).
+  Text's `size` works without Arial installed (most Linux systems ignored it).
 - Constant and Text colours (fixed 2026-11-04): a mistyped hex colour such as `#ff00zz` now stops with a message.
   It used to turn black (or white) without a word.
 - Deserialize (fixed 2026-11-04) refuses a payload of another type and names the node to use.

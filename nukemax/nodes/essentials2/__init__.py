@@ -307,7 +307,7 @@ class Defocus:
         x = rgb.permute(0, 3, 1, 2); C = x.shape[1]
         ys, xs = torch.meshgrid(torch.arange(-r, r + 1), torch.arange(-r, r + 1), indexing="ij")
         disc = ((xs.float() ** 2 + ys.float() ** 2) <= (r * r)).float()
-        disc = (disc / disc.sum()).to(x.dtype)
+        disc = (disc / disc.sum()).to(device=x.device, dtype=x.dtype)   # A22 L9.137: was CPU-only
         k = disc.view(1, 1, 2 * r + 1, 2 * r + 1).repeat(C, 1, 1, 1)
         x = F.conv2d(reflect_pad(x, (r, r, r, r)), k, groups=C)
         return (_join(x.permute(0, 2, 3, 1), a),)
