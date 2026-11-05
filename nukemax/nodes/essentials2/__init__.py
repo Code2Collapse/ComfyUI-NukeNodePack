@@ -348,7 +348,8 @@ class CornerPin:
     def execute(self, image, to1_x, to1_y, to2_x, to2_y, to3_x, to3_y, to4_x, to4_y):
         require_image_bhwc(image)
         if not _HAVE_CV2:
-            return (image,)
+            # A22 L9.137: this returned the input unchanged without a word
+            raise RuntimeError("Corner Pin needs opencv-python: pip install opencv-python, then restart ComfyUI.")
         B, H, W, C = image.shape
         src = np.float32([[0, 0], [W, 0], [W, H], [0, H]])
         dst = np.float32([[to1_x * W, to1_y * H], [to2_x * W, to2_y * H],

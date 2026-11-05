@@ -246,6 +246,10 @@ ComfyUI with this pack and fails on an import failure, no registered node, or a 
 - Sharpen and Median (fixed 2026-11-04) run on images smaller than their size (they raised a padding error).
   The same fix now covers every NukeMax filter that mirrors the image edge (2026-11-05): blurs, edge detect,
   flow, relight, plate tools and the rest repeat the edge where the image is too small to mirror.
+- 2026-11-05: Corner Pin, and HistEQ in `clahe` mode, stop with an install message when opencv is missing (they
+  returned the input, or ran global equalisation, without a word). Vignette with a negative amount no longer
+  pulls values above 1.0 down. The Mocha file nodes re-run when the file is re-exported under the same name.
+  HDR Exposure Blend's Laplacian Pyramid no longer leaks colour between channels.
 - Constant and Text colours (fixed 2026-11-04): a mistyped hex colour such as `#ff00zz` now stops with a message.
   It used to turn black (or white) without a word.
 - Deserialize (fixed 2026-11-04) refuses a payload of another type and names the node to use.

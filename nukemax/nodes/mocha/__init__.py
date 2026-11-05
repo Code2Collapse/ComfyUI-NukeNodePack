@@ -65,6 +65,16 @@ def _resolve_path(p: str) -> str:
     )
 
 
+def _file_sig(p) -> str:
+    """Size + mtime of the file a Mocha node reads, so IS_CHANGED moves when the file is re-exported in place
+    (A22 L9.137: only the path string was hashed - an unchanged re-queue returned the old track)."""
+    try:
+        st = os.stat(_resolve_path(str(p)))
+        return f"{st.st_size}:{st.st_mtime_ns}"
+    except Exception:  # noqa: BLE001 - empty / missing: execute reports it
+        return "missing"
+
+
 # -----------------------------------------------------------------------
 # Server route: POST /nukemax/mocha/upload
 #   multipart with `file` -> writes to ComfyUI/input/mocha/<safe_name>
@@ -264,6 +274,8 @@ class MochaImportCornerPin:
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
+        if "file_path" in kwargs:
+            return hash_args_and_kwargs(_file=_file_sig(kwargs.get("file_path")), **kwargs)
         return hash_args_and_kwargs(**kwargs)
 
     @classmethod
@@ -298,6 +310,8 @@ class MochaImportCornerPinPaste:
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
+        if "file_path" in kwargs:
+            return hash_args_and_kwargs(_file=_file_sig(kwargs.get("file_path")), **kwargs)
         return hash_args_and_kwargs(**kwargs)
 
     @classmethod
@@ -344,6 +358,8 @@ class MochaImportTransform:
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
+        if "file_path" in kwargs:
+            return hash_args_and_kwargs(_file=_file_sig(kwargs.get("file_path")), **kwargs)
         return hash_args_and_kwargs(**kwargs)
 
     @classmethod
@@ -375,6 +391,8 @@ class MochaImportTransformPaste:
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
+        if "file_path" in kwargs:
+            return hash_args_and_kwargs(_file=_file_sig(kwargs.get("file_path")), **kwargs)
         return hash_args_and_kwargs(**kwargs)
 
     @classmethod
@@ -415,6 +433,8 @@ class MochaApplyTracking:
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
+        if "file_path" in kwargs:
+            return hash_args_and_kwargs(_file=_file_sig(kwargs.get("file_path")), **kwargs)
         return hash_args_and_kwargs(**kwargs)
 
     @classmethod
@@ -484,6 +504,8 @@ class MochaImportShapesAsMask:
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
+        if "file_path" in kwargs:
+            return hash_args_and_kwargs(_file=_file_sig(kwargs.get("file_path")), **kwargs)
         return hash_args_and_kwargs(**kwargs)
 
     @classmethod
@@ -517,6 +539,8 @@ class MochaImportShapesAsMaskPaste:
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
+        if "file_path" in kwargs:
+            return hash_args_and_kwargs(_file=_file_sig(kwargs.get("file_path")), **kwargs)
         return hash_args_and_kwargs(**kwargs)
 
     @classmethod
@@ -586,6 +610,8 @@ class MochaInvertTrack:
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
+        if "file_path" in kwargs:
+            return hash_args_and_kwargs(_file=_file_sig(kwargs.get("file_path")), **kwargs)
         return hash_args_and_kwargs(**kwargs)
 
     @classmethod
@@ -655,6 +681,8 @@ class MochaImportLens:
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
+        if "file_path" in kwargs:
+            return hash_args_and_kwargs(_file=_file_sig(kwargs.get("file_path")), **kwargs)
         return hash_args_and_kwargs(**kwargs)
 
     @classmethod
@@ -718,6 +746,8 @@ class MochaApplyLens:
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
+        if "file_path" in kwargs:
+            return hash_args_and_kwargs(_file=_file_sig(kwargs.get("file_path")), **kwargs)
         return hash_args_and_kwargs(**kwargs)
 
     @classmethod
@@ -762,6 +792,8 @@ class MochaImportProject:
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
+        if "file_path" in kwargs:
+            return hash_args_and_kwargs(_file=_file_sig(kwargs.get("file_path")), **kwargs)
         return hash_args_and_kwargs(**kwargs)
 
     @classmethod
@@ -803,6 +835,8 @@ class MochaImportAuto:
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
+        if "file_path" in kwargs:
+            return hash_args_and_kwargs(_file=_file_sig(kwargs.get("file_path")), **kwargs)
         return hash_args_and_kwargs(**kwargs)
 
     @classmethod

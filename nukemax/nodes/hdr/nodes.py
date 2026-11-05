@@ -550,7 +550,9 @@ def _laplacian_pyramid_blend(low_exp: np.ndarray, high_exp: np.ndarray, levels: 
     def build_gaussian_pyramid(img, n_levels):
         pyramid = [img]
         for _ in range(n_levels - 1):
-            blurred = gaussian_filter(pyramid[-1], sigma=2)
+            cur = pyramid[-1]
+            # A22 L9.137: sigma=2 also blurred ACROSS the channel axis (colour leaked between R, G and B)
+            blurred = gaussian_filter(cur, sigma=(2, 2) + (0,) * (cur.ndim - 2))
             pyramid.append(blurred[::2, ::2])
         return pyramid
 

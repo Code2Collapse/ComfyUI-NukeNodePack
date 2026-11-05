@@ -518,7 +518,8 @@ class Vignette:
         if amount >= 0:
             out = rgb * (1.0 - mask)
         else:
-            out = rgb + (1.0 - rgb) * mask
+            # A22 L9.137: values above 1 were pulled DOWN toward 1 by (1 - rgb) < 0; they now stay as they are
+            out = torch.where(rgb <= 1.0, rgb + (1.0 - rgb) * mask, rgb)
         return (_join(out, a),)
 
 
@@ -578,6 +579,10 @@ class HistEQ:
                 eq = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
                 out[i] = torch.from_numpy(eq.astype(np.float32) / 255.0).to(rgb.device, rgb.dtype)
         else:
+            if mode == "clahe":
+                # A22 L9.137: 'clahe' silently ran the global equalisation below
+                raise RuntimeError("HistEQ mode 'clahe' needs opencv-python (pip install opencv-python, then restart "
+                                   "ComfyUI); mode 'global' works without it.")
             # Pure-torch global equalisation on luma, applied as a gain to RGB.
             l = _luma(rgb)
             out = rgb.clone()
