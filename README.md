@@ -273,6 +273,13 @@ ComfyUI with this pack and fails on an import failure, no registered node, or a 
 - Dissolve and Keymix (fixed 2026-11-04) accept an RGB B under an RGBA A (the missing alpha counts as 1). Different
   frame counts now get a plain message; a still plate with an animated mask still works. Grade's mask gets the
   same frame check.
+- RGBA input (fixed 2026-11-06): Compute Optical Flow, Hair-Aware Choke, Sub-Pixel Edge Detect, Material
+  Decomposer and Light Probe Estimator use the colour channels and no longer crash on an image with alpha.
+- One-frame clips (fixed 2026-11-06): with no frame pair there is no motion, so the flow warps return the image
+  unchanged and Flow Visualize / Occlusion Mask give one frame instead of none (the warps used to crash).
+- Deep Flatten (fixed 2026-11-06) keeps HDR colour (a 3.0 pixel used to flatten to 1.0); only alpha is limited
+  to 0..1. Clean Plate Extractor: a pixel masked out in every frame now takes the first frame's value, as
+  documented, instead of turning infinite.
 - All temporal nodes operate batch-first (B = T), no per-frame Python loops in the hot path.
 - The dual-output discipline is enforced: classical VFX socket on the left, AI-consumable socket on the right, on every node where both are meaningful.
 - Works inside subgraphs: each node's run status and plain-English error, NkScript copy / paste and the Mocha file drop all follow nodes that live inside (nested) subgraphs.
