@@ -280,6 +280,8 @@ ComfyUI with this pack and fails on an import failure, no registered node, or a 
 - Deep Flatten (fixed 2026-11-06) keeps HDR colour (a 3.0 pixel used to flatten to 1.0); only alpha is limited
   to 0..1. Clean Plate Extractor: a pixel masked out in every frame now takes the first frame's value, as
   documented, instead of turning infinite.
+- Very small images (fixed 2026-11-06): an image 1, 3 or 4 pixels tall is no longer mistaken for channels-first data
+  (FFT Texture Synthesis returned the wrong channel count; Hair-Aware Choke and Normal-Aware Edge Blur crashed).
 - All temporal nodes operate batch-first (B = T), no per-frame Python loops in the hot path.
 - The dual-output discipline is enforced: classical VFX socket on the left, AI-consumable socket on the right, on every node where both are meaningful.
 - Works inside subgraphs: each node's run status and plain-English error, NkScript copy / paste and the Mocha file drop all follow nodes that live inside (nested) subgraphs.
