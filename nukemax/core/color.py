@@ -29,8 +29,15 @@ BT2020_RGB_TO_YCBCR = torch.tensor(
 
 
 def to_bchw(img: torch.Tensor) -> torch.Tensor:
-    """ComfyUI (B,H,W,C) -> (B,C,H,W). Idempotent on already-BCHW."""
-    if img.ndim == 4 and img.shape[-1] in (1, 3, 4) and img.shape[1] not in (1, 3, 4):
+    """ComfyUI (B,H,W,C) -> (B,C,H,W). A 4-D tensor whose last dimension is not 1/3/4 channels is taken as
+    already-BCHW and returned unchanged.
+
+    L7.07: a trailing 1/3/4 is ALWAYS read as channels. The old rule also required dim 1 not to be 1/3/4, so a real
+    ComfyUI image 1, 3 or 4 pixels tall passed through unpermuted as if it were BCHW (FFT Texture Synthesis made a
+    4-channel image of a 4-px-tall RGB strip; Hair-Aware Choke and Normal-Aware Edge Blur crashed). Every caller
+    passes a ComfyUI IMAGE (BHWC by contract); only a BCHW tensor 1, 3 or 4 pixels WIDE is now ambiguous, and none
+    is passed in."""
+    if img.ndim == 4 and img.shape[-1] in (1, 3, 4):
         return img.permute(0, 3, 1, 2).contiguous()
     if img.ndim == 4:
         return img
