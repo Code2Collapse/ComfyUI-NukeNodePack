@@ -120,6 +120,17 @@ class ComputeOpticalFlow:
         return (FlowField(flow_fwd=flow_fwd, flow_bwd=flow_bwd, occlusion_fwd=occ),)
 
 
+def _flow_for_frames(f: torch.Tensor, T: int, H: int, W: int) -> torch.Tensor:
+    """One flow per frame: repeat the last flow past the end, cut the rest. L7.07: a one-frame clip has NO flow
+    (Compute Optical Flow returns an empty bundle) - that is zero motion, so warping is the identity instead of the
+    crash it used to be ("expanded size ... existing size (0)")."""
+    if f.shape[0] == 0:
+        return torch.zeros(T, 2, H, W, dtype=f.dtype, device=f.device)
+    if f.shape[0] < T:
+        return torch.cat([f, f[-1:].expand(T - f.shape[0], -1, -1, -1)], dim=0)
+    return f[:T]
+
+
 @resilient
 class FlowBackwardWarp:
     DESCRIPTION = "Backward-warp an image batch using a precomputed flow field in either the forward or backward direction."
@@ -148,13 +159,7 @@ class FlowBackwardWarp:
         require_image_bhwc(image)
         x = to_bchw(image)
         f = flow.flow_fwd if direction == "forward" else flow.flow_bwd
-        # Pad to len(x) by repeating last flow
-        T = x.shape[0]
-        if f.shape[0] < T:
-            pad = T - f.shape[0]
-            f = torch.cat([f, f[-1:].expand(pad, -1, -1, -1)], dim=0)
-        else:
-            f = f[:T]
+        f = _flow_for_frames(f, x.shape[0], x.shape[2], x.shape[3])   # pad by repeating the last flow
         out = nflow.backward_warp(x, f)
         return (to_bhwc(out),)                  # L9.39: warped colour, no clamp
 
@@ -180,12 +185,7 @@ class FlowForwardWarp:
     def execute(self, image, flow):
         require_image_bhwc(image)
         x = to_bchw(image)
-        f = flow.flow_fwd
-        T = x.shape[0]
-        if f.shape[0] < T:
-            f = torch.cat([f, f[-1:].expand(T - f.shape[0], -1, -1, -1)], dim=0)
-        else:
-            f = f[:T]
+        f = _flow_for_frames(flow.flow_fwd, x.shape[0], x.shape[2], x.shape[3])
         out, w = nflow.forward_warp(x, f)
         out_norm = out / w.clamp_min(1e-6)
         return (to_bhwc(out_norm), w.squeeze(1).clamp(0, 1))   # L9.39: colour unclamped, weight is a matte
@@ -214,6 +214,8 @@ class FlowOcclusionMask:
             occ = nflow.occlusion_from_consistency(flow.flow_fwd, flow.flow_bwd)
         else:
             occ = flow.occlusion_fwd
+        if occ.shape[0] == 0:                   # L7.07: one-frame clip, no flow -> nothing occluded (one frame, not none)
+            occ = torch.zeros(1, 1, *flow.flow_fwd.shape[-2:], dtype=flow.flow_fwd.dtype)
         return (occ.squeeze(1),)
 
 
@@ -288,6 +290,8 @@ class FlowVisualize:
 
     def execute(self, flow, max_magnitude):
         f = flow.flow_fwd
+        if f.shape[0] == 0:                     # L7.07: one-frame clip, no flow -> one zero-motion frame, not none
+            f = torch.zeros(1, 2, *f.shape[-2:], dtype=f.dtype, device=f.device)
         ang = torch.atan2(f[:, 1], f[:, 0])
         mag = (f.norm(dim=1) / max_magnitude).clamp(0, 1)
         h = (ang / (2 * math.pi) + 0.5).clamp(0, 1)

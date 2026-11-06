@@ -94,7 +94,9 @@ class DeepImage:
             samp = rgba_sorted[:, k]                     # (B,H,W,4)
             out = out + samp * trans
             trans = trans * (1.0 - samp[..., 3:4]).clamp(0, 1)
-        return out.clamp(0, 1)
+        # L7.07 (L9.39 policy): only coverage is bounded. The colour is scene-linear, premultiplied - clamping it to
+        # 1.0 threw away every highlight (a 3.0 pixel flattened to 1.0).
+        return torch.cat([out[..., :3], out[..., 3:4].clamp(0, 1)], dim=-1)
 
     def to_image_depth(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Flatten and return (IMAGE, MASK-depth)."""

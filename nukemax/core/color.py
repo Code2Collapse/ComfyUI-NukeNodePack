@@ -71,6 +71,14 @@ def rgb_to_ycbcr(rgb: torch.Tensor, matrix: torch.Tensor = BT709_RGB_TO_YCBCR) -
 
 
 def luminance(rgb: torch.Tensor, matrix: torch.Tensor = BT709_RGB_TO_YCBCR) -> torch.Tensor:
-    """Returns (B,1,H,W) luminance."""
+    """Returns (B,1,H,W) luminance of a (B,C,H,W) image.
+
+    L7.07: RGBA (C=4) used to crash every caller ("size of tensor a (4) must match b (3)"); the alpha channel is not
+    part of luminance, so only the first three channels are weighted. A one-channel image is its own luminance."""
+    c = rgb.shape[1]
+    if c == 1:
+        return rgb
+    if c < 3:
+        raise ValueError(f"luminance needs an RGB or RGBA image; this one has {c} channels.")
     w = matrix[0].to(rgb.device, rgb.dtype).view(1, 3, 1, 1)
-    return (rgb * w).sum(dim=1, keepdim=True)
+    return (rgb[:, :3] * w).sum(dim=1, keepdim=True)

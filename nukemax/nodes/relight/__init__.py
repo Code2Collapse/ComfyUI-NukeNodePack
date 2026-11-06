@@ -241,7 +241,8 @@ class LightProbeEstimator:
     def execute(self, image, materials, probe_height, probe_width):
         require_image_bhwc(image)
         import math
-        x = srgb_to_linear(to_bchw(image).clamp(1e-4, 1))
+        # L7.07: colour channels only - an RGBA image used to crash against the 3-channel albedo
+        x = srgb_to_linear(to_bchw(image)[:, :3].clamp(1e-4, 1))
         radiance = (x / materials.albedo.clamp_min(0.05)).clamp(0, 8)
         n = materials.normal
         B, _, H, W = n.shape

@@ -303,10 +303,13 @@ class CleanPlateExtractorMEC:
             big = torch.full_like(vals, float("inf"))
             masked = torch.where(mask > 0.5, vals, big)
             sort_v, _ = torch.sort(masked, dim=0)
-            counts = mask.sum(dim=0).clamp_min(1)  # [H,W]
+            n_valid = mask.sum(dim=0)  # [H,W]
+            counts = n_valid.clamp_min(1)
             mid_idx = ((counts - 1) // 2).long().unsqueeze(0)  # [1,H,W]
             med = torch.gather(sort_v, 0, mid_idx).squeeze(0)
-            no_valid = counts < 1
+            # L7.07: test the UNclamped count - after clamp_min(1) this was never true, so a pixel excluded in
+            # every frame took the +inf sentinel instead of the documented first-frame value.
+            no_valid = n_valid < 1
             med = torch.where(no_valid, vals[0], med)
             out[..., c] = med.unsqueeze(0).expand_as(out[..., c])
         return (out[:1].clone(),)
