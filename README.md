@@ -280,6 +280,11 @@ ComfyUI with this pack and fails on an import failure, no registered node, or a 
 - Deep Flatten (fixed 2026-11-06) keeps HDR colour (a 3.0 pixel used to flatten to 1.0); only alpha is limited
   to 0..1. Clean Plate Extractor: a pixel masked out in every frame now takes the first frame's value, as
   documented, instead of turning infinite.
+- Roto and Mocha shapes render about 900x faster (2026-11-07): a 1080p frame took 29-45 s on the CPU and now takes
+  0.03-0.05 s, with the same mask values (checked against the old code on random, self-intersecting and off-canvas
+  shapes, open and closed, every feather mode).
+- Editors (Roto, and every panel built on the shared C2C UI): Ctrl+Shift+Z redoes again; Caps Lock no longer breaks
+  Ctrl+Z (2026-11-07).
 - Very small images (fixed 2026-11-06): an image 1, 3 or 4 pixels tall is no longer mistaken for channels-first data
   (FFT Texture Synthesis returned the wrong channel count; Hair-Aware Choke and Normal-Aware Edge Blur crashed).
 - All temporal nodes operate batch-first (B = T), no per-frame Python loops in the hot path.
