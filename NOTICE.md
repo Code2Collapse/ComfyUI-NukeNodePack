@@ -29,9 +29,9 @@ header says so.
 
 | NukeMax family | Upstream project | Licence the upstream declares |
 | --- | --- | --- |
-| `NukeMax/HDR` (`nukemax/nodes/hdr/`, `nukemax/utils/hdr_linear.py`) | [radiance](https://github.com/fxtdstudios/radiance) by FXTD Studios | README badge and credits say **GPL-3.0**; the repository ships **no LICENSE file** |
+| `NukeMax/HDR` (`nukemax/nodes/hdr/`, `nukemax/utils/hdr_linear.py`) | [radiance](https://github.com/fxtdstudios/radiance) by FXTD Studios | **GPL-3.0** (README badge and credits; GitHub detects a GPL-3.0 LICENSE file as of 2026-11-07 - earlier the repository shipped none) |
 | `NukeMax/IO` EXR sequence, `NukeMax/OCIO` transforms | [ComfyUI-ACES-IO](https://github.com/BISAM20/ComfyUI-ACES-IO) by BISAM20 | README says **MIT** |
-| `NukeMax/OCIO` grade / curves | [ComfyUI-OCIO](https://github.com/SlavaSexton/ComfyUI-OCIO) by Slava Sexton (AI VFX NEWS) | README badge says **MIT** |
+| `NukeMax/OCIO` grade / curves | [ComfyUI-OCIO](https://github.com/SlavaSexton/ComfyUI-OCIO) by Slava Sexton (AI VFX NEWS) | **Apache-2.0** (GitHub LICENSE as of 2026-11-07; the README badge said MIT when ported - both are compatible with GPL-3.0) |
 | `NukeMax` Nuke-parity operators (Levels, MultiPass, ShufflePass, Viewer) | [nuke-nodes-comfyui](https://github.com/sumitchatterjee13/nuke-nodes-comfyui) by Sumit Chatterjee | README says **MIT** |
 
 None of the four upstream clones in this workspace's `third_party/` ships an
@@ -44,7 +44,7 @@ either absent or thinner than what these nodes need.
 
 ### The HDR family, and why this pack is GPL-3
 
-`radiance` declares GPL-3.0 in its README (it ships no LICENSE file), and
+`radiance` is GPL-3.0 (README, and a LICENSE file as of 2026-11-07), and
 `nukemax/nodes/hdr/` is a port of it, not an independent implementation — an
 earlier header on those files claimed "clean-room" and that claim was false.
 GPL-3 code cannot be redistributed inside an Apache-2.0 work, so on 2026-09-19

@@ -48,7 +48,7 @@ EXR sequence I/O and the OCIO transforms in `nukemax/nodes/io/` and
 ACES 1.2 config is BSD via colour-science.
 
 ### ComfyUI-OCIO — Slava Sexton (AI VFX NEWS)
-<https://github.com/SlavaSexton/ComfyUI-OCIO> · **MIT** (README badge)
+<https://github.com/SlavaSexton/ComfyUI-OCIO> · **Apache-2.0** (GitHub LICENSE, checked 2026-11-07; the README badge said MIT when ported)
 
 The OCIO grade and curve work in `nukemax/nodes/ocio_color/`.
 
