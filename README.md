@@ -453,6 +453,16 @@ Colour-managed I/O on NukeMax Read / Write and the OCIO Config Manager (Part 19.
   - The config, both spaces and how each was chosen are recorded in the manifest sidecar.
 - Measured live: an sRGB PNG read into ACEScg and written back matches the source to within 6e-8.
 
+## Gamut matrices match OCIO (2026-11-11, L9.187)
+
+Gamut conversion (`NukeMax/Color` gamut node, log-curve plates) adapted every gamut with Bradford. OCIO's ACES
+configs, following the camera vendors' IDTs, use CAT02 for ARRI Wide Gamut 3 / 4, Sony S-Gamut3 / .Cine, DaVinci
+Wide Gamut and Blackmagic Gen5, so those matrices were 4-5e-3 off what Nuke / OCIO compute. Each gamut now uses the
+adaptation OCIO uses, through the ACES white:
+- every pair of the 13 gamuts with an OCIO counterpart matches it to 1e-6;
+- Bradford-only pairs are unchanged;
+- Canon Cinema Gamut D55 still differs, because OCIO uses Canon's own matrix.
+
 ## Float / HDR path (2026-11-02)
 
 Every NukeMax image node that runs without a model was measured on an HDR ramp (−0.5 … 4.0), looking for clamps to
