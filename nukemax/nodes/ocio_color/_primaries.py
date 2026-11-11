@@ -16,9 +16,12 @@ matrices named `*_TO_ACESCG`. Two problems:
 
 So this module builds every matrix from first principles instead: the
 normalised primary matrix (NPM) from the published xy chromaticities, a
-Bradford chromatic adaptation between the two white points, and the inverse
-NPM of the destination. Verified against OCIO's own ACES Studio config
-transforms — see the numbers in PROCESS_PLATE.md.
+chromatic adaptation to the ACES white, and the inverse NPM of the destination.
+The adaptation is the one OCIO's ACES configs use per gamut: CAT02 for the
+ARRI / Sony / DaVinci / Blackmagic camera gamuts (the vendors' IDTs), Bradford
+for the rest. Until L9.187 (2026-11-11) every gamut used Bradford and the
+camera gamuts were 4-5e-3 off OCIO; now they match it to ~1e-7 (Canon Cinema
+Gamut D55 is off under either: OCIO uses Canon's own matrix).
 
 Every matrix here is exact float64 at import, cast to float32 on use. No
 value is clamped: a gamut conversion legitimately produces negatives
@@ -93,12 +96,26 @@ PRIMARIES: Dict[str, Tuple[tuple, tuple, tuple, tuple, str]] = {
 
 GAMUT_NAMES = tuple(PRIMARIES.keys())
 
-# Bradford cone response, the CAT used by the ACES IDTs and by OCIO.
+# Bradford cone response: what OCIO's ACES configs use for the display / standard gamuts (Rec.709, Rec.2020, P3,
+# V-Gamut, REDWideGamutRGB).
 _BRADFORD = np.array([
     [0.8951, 0.2664, -0.1614],
     [-0.7502, 1.7135, 0.0367],
     [0.0389, -0.0685, 1.0296],
 ], dtype=np.float64)
+
+# CAT02 (CIECAM02): what the camera vendors' published ACES IDTs use, and so OCIO's ACES configs for these gamuts.
+# L9.187, measured 2026-11-11 against ocio://studio-config-latest (OCIO 2.5.2), max |matrix delta| to ACEScg:
+# Bradford 4.1e-3 .. 5.1e-3, CAT02 2e-8 .. 5e-8 (Blackmagic Gen5 9.6e-5). Every conversion goes through the ACES
+# white with each gamut's own adaptation, so a pair of Bradford gamuts is exactly the old direct Bradford matrix.
+_CAT02 = np.array([
+    [0.7328, 0.4296, -0.1624],
+    [-0.7036, 1.6975, 0.0061],
+    [0.0030, 0.0136, 0.9834],
+], dtype=np.float64)
+_CAT02_GAMUTS = frozenset({"ARRI Wide Gamut 3", "ARRI Wide Gamut 4", "Sony S-Gamut3", "Sony S-Gamut3.Cine",
+                           "DaVinci Wide Gamut", "Blackmagic Wide Gamut Gen5"})
+_ACES_HUB = "ACEScg (AP1)"
 
 
 def _xy_to_XYZ(xy: tuple, Y: float = 1.0) -> np.ndarray:
@@ -114,11 +131,23 @@ def _npm(r: tuple, g: tuple, b: tuple, w: tuple) -> np.ndarray:
     return P * np.linalg.solve(P, _xy_to_XYZ(w))
 
 
-def _bradford_cat(src_w: tuple, dst_w: tuple) -> np.ndarray:
-    """Bradford chromatic adaptation XYZ(src white) -> XYZ(dst white)."""
-    cs = _BRADFORD @ _xy_to_XYZ(src_w)
-    cd = _BRADFORD @ _xy_to_XYZ(dst_w)
-    return np.linalg.inv(_BRADFORD) @ np.diag(cd / cs) @ _BRADFORD
+def _bradford_cat(src_w: tuple, dst_w: tuple, cone: np.ndarray = _BRADFORD) -> np.ndarray:
+    """von Kries chromatic adaptation XYZ(src white) -> XYZ(dst white) in a cone space (Bradford by default)."""
+    cs = cone @ _xy_to_XYZ(src_w)
+    cd = cone @ _xy_to_XYZ(dst_w)
+    return np.linalg.inv(cone) @ np.diag(cd / cs) @ cone
+
+
+def adaptation(name: str) -> str:
+    """'CAT02' or 'Bradford': the chromatic adaptation OCIO's ACES configs use for this gamut."""
+    return "CAT02" if name in _CAT02_GAMUTS else "Bradford"
+
+
+def _to_hub(name: str) -> np.ndarray:
+    r, g, b, w, _ = PRIMARIES[name]
+    hr, hg, hb, hw, _ = PRIMARIES[_ACES_HUB]
+    cone = _CAT02 if name in _CAT02_GAMUTS else _BRADFORD
+    return np.linalg.inv(_npm(hr, hg, hb, hw)) @ _bradford_cat(w, hw, cone) @ _npm(r, g, b, w)
 
 
 def gamut_matrix(src: str, dst: str) -> np.ndarray:
@@ -132,9 +161,9 @@ def gamut_matrix(src: str, dst: str) -> np.ndarray:
             raise KeyError(
                 f"unknown gamut {name!r}. Known gamuts: {', '.join(GAMUT_NAMES)}"
             )
-    sr, sg, sb, sw, _ = PRIMARIES[src]
-    dr, dg, db, dw, _ = PRIMARIES[dst]
-    return np.linalg.inv(_npm(dr, dg, db, dw)) @ _bradford_cat(sw, dw) @ _npm(sr, sg, sb, sw)
+    if src == dst:
+        return np.eye(3, dtype=np.float64)
+    return np.linalg.inv(_to_hub(dst)) @ _to_hub(src)
 
 
 def matrix_source(name: str) -> str:

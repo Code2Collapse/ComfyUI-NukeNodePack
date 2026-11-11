@@ -55,7 +55,7 @@ from ...utils.resilience import resilient
 from . import _cube
 from .ocio_grade import NODE_CLASS_MAPPINGS as _GRADE_C, NODE_DISPLAY_NAME_MAPPINGS as _GRADE_D
 from ._curves import CURVE_NAMES, CURVES, LEGACY_CURVE_KEYS, resolve_curve
-from ._primaries import GAMUT_NAMES, gamut_matrix, matrix_source
+from ._primaries import GAMUT_NAMES, adaptation, gamut_matrix, matrix_source
 
 log = logging.getLogger("NukeMax.Color")
 
@@ -447,7 +447,7 @@ class CameraGamutConvert:
         "Convert scene-linear RGB between gamuts (ARRI Wide Gamut 3/4, Sony S-Gamut3(.Cine), "
         "Panasonic V-Gamut, Canon Cinema Gamut, RED Wide Gamut RGB, DaVinci Wide Gamut, "
         "Blackmagic Gen5, ACES AP0/AP1, Rec.709, Rec.2020, P3, AdobeRGB). Matrices are derived "
-        "at import from the vendors' published chromaticities with a Bradford adaptation — not "
+        "at import from the vendors' published chromaticities with the adaptation OCIO's ACES configs use (CAT02 for camera gamuts, Bradford otherwise) — not "
         "copied from a reference pack. Input must already be LINEAR: decode the log curve first. "
         "Negatives and values above 1.0 are preserved; out-of-gamut colour is reported, not clipped."
     )
@@ -487,7 +487,7 @@ class CameraGamutConvert:
             "matrix": [[round(float(v), 8) for v in row] for row in m],
             "source_primaries": matrix_source(from_gamut),
             "target_primaries": matrix_source(to_gamut),
-            "adaptation": "Bradford",
+            "adaptation": f"{adaptation(from_gamut)} -> ACES white -> {adaptation(to_gamut)}",
             "out_of_gamut_pixel_fraction": round(neg, 6),
             "out_of_gamut_note": (
                 "Pixels with a negative channel are outside the destination gamut. They are "
