@@ -10,11 +10,13 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "GPL-3.0-only" }
 authors = [{ name = "Code2Collapse" }]
+# torch / torchvision come with ComfyUI and are NOT listed: an installer resolving them could replace the CUDA build
+# ComfyUI runs on (A24 dependency audit, L9.163, 2026-11-11). requirements.txt lists everything for a full install.
 dependencies = [
-    "torch>=2.0",
     "numpy>=1.24",
     "opencv-python>=4.8",
     "pillow>=10.0",
+    "scipy>=1.10",
 ]
 
 [project.urls]
@@ -29,6 +31,9 @@ Icon = "https://i.pinimg.com/736x/5d/52/19/5d5219ef27c1530bea027ff95d352e05.jpg"
 [project.optional-dependencies]
 audio = ["librosa>=0.10", "soundfile>=0.12"]
 flow = ["opencv-python-headless>=4.8"]
+exr = ["OpenImageIO>=2.5", "OpenEXR>=3.2; python_version >= '3.10'", "imageio>=2.31"]
+color = ["opencolorio>=2.2"]
+video = ["av>=10.0"]
 test = ["pytest>=7", "scipy>=1.10"]
 
 [tool.setuptools.packages.find]
