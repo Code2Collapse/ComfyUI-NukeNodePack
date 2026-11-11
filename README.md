@@ -3,10 +3,11 @@
 > ### 📖 Full node & parameter reference
 > **[NODE_REFERENCE.md](NODE_REFERENCE.md)** documents **every node in this pack**:
 > each input's type, default, valid range and what it actually does, plus every
-> output. It is generated directly from the live `NODE_CLASS_MAPPINGS`, so the
-> descriptions there are the *same strings* you see as tooltips in ComfyUI and
-> cannot drift out of date. Start there when you want to know what a knob does;
-> read on here for how the pieces fit together.
+> output, the file that defines it and where it came from (its `PORTED FROM` header, or the
+> CREDITS.md / NOTICE.md section that names its folder). It is generated from the live
+> registration by the workspace tool `tools/c2c_node_reference.py`, so the descriptions there
+> are the *same strings* you see as tooltips in ComfyUI. 211 nodes as of 2026-11-12. Start there
+> when you want to know what a knob does; read on here for how the pieces fit together.
 
 
 > **Trademark Notice**: "Nuke" is a registered trademark of **The Foundry Visionmongers Ltd**.
@@ -14,7 +15,7 @@
 > endorsed by, or associated with The Foundry or its Nuke software** in any way.
 > No Foundry code or proprietary assets are used. See [NOTICE.md](NOTICE.md).
 
-Hybrid VFX × AI bridge nodes for ComfyUI. ~50 nodes across 13 file-grouped categories — every traditional VFX operation also exposes an AI-consumable side output (SAM prompts, latent guidance, conditioning curves, EXR metadata) so you can bridge a Nuke/Blender-style compositing flow into a Flux / Qwen-Image / Wan / Z-Image graph without round-tripping to disk.
+Hybrid VFX × AI bridge nodes for ComfyUI. 211 nodes (measured from registration, 2026-11-12); the family sections below describe the original core families — every traditional VFX operation also exposes an AI-consumable side output (SAM prompts, latent guidance, conditioning curves, EXR metadata) so you can bridge a Nuke/Blender-style compositing flow into a Flux / Qwen-Image / Wan / Z-Image graph without round-tripping to disk.
 
 Foundation: strict custom datatypes (`ROTO_SHAPE`, `FFT_DATA`, `MATERIAL_PBR`, `LIGHT_PROBE`, `AUDIO_TENSOR`, `FLOW_VECTOR`, `EDGE_MAP`, `MEC_RENDER_PASSES`, …), vectorized PyTorch math (BCHW with batch dim = time), per-batch temporal execution, and an optional JS web-extension layer (`web/`) for interactive editors.
 
