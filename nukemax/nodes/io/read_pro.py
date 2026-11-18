@@ -411,7 +411,8 @@ def _register_routes():
     @routes.post("/nukemax/media/upload_media")
     async def _upload(request):
         parts, overwrite = [], False
-        limit = int(os.environ.get("NUKEMAX_UPLOAD_MAX_MB", "16384")) * 1024 * 1024
+        from ..._c2c_saved_setting import get as _c2c_setting       # L3.02: C2C > NukeMax setting; the variable wins
+        limit = int(_c2c_setting("c2c.nukemax.uploadMaxMB.media", 16384, env="NUKEMAX_UPLOAD_MAX_MB", parse=int)) * 1024 * 1024
         folder = os.path.join(RP._folder_paths().get_input_directory(), UPLOAD_SUBFOLDER)
         os.makedirs(folder, exist_ok=True)
         try:

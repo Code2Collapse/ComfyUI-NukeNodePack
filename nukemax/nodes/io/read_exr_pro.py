@@ -304,7 +304,8 @@ def _register_routes():
         try:
             reader = await request.multipart()
             items, overwrite = [], False
-            limit = int(os.environ.get("NUKEMAX_UPLOAD_MAX_MB", "4096")) * 1024 * 1024
+            from ..._c2c_saved_setting import get as _c2c_setting   # L3.02: C2C > NukeMax setting; the variable wins
+            limit = int(_c2c_setting("c2c.nukemax.uploadMaxMB.exr", 4096, env="NUKEMAX_UPLOAD_MAX_MB", parse=int)) * 1024 * 1024
             async for part in reader:
                 if part.name == "file":                      # one or many (every frame of a sequence)
                     name = part.filename or "upload.exr"

@@ -7,6 +7,7 @@ import { app } from "../../scripts/app.js";
 // The Code2Collapse house look on the canvas (night title bar and body, only
 // where a node has no colour of its own). Same file ships in every pack.
 import "./_c2c_brand.js";
+import "./nukemax_settings.js";             // L3.02: NukeMax upload limits under C2C settings
 
 // Per-ecosystem widget modules. Each one self-registers via
 // app.registerExtension when imported.
