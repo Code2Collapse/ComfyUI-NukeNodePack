@@ -565,3 +565,9 @@ time you queue, as ComfyUI's own Save Image saves a new file. To reuse unchanged
   - Not recoverable: a workflow that was loaded and saved again while the bug was there was saved with the moved
     values. Check those four nodes in older workflows.
 - An error on a NukeMax node now shows the node's own message, not a line of the Python traceback.
+
+## Accessibility update (2026-11-18)
+
+The sliders, number boxes, drop-downs, colour pickers and switches in this pack's node panels now carry their row
+label, so screen readers announce them by name. Typing 0 into a number box whose range starts below zero keeps 0
+(it used to jump to the minimum).
