@@ -571,3 +571,9 @@ time you queue, as ComfyUI's own Save Image saves a new file. To reuse unchanged
 The sliders, number boxes, drop-downs, colour pickers and switches in this pack's node panels now carry their row
 label, so screen readers announce them by name. Typing 0 into a number box whose range starts below zero keeps 0
 (it used to jump to the minimum).
+
+## Upload limits in Settings (2026-11-18)
+
+The largest file **Read EXR Pro** and **Read** accept for upload is now a setting: *Settings > C2C > NukeMax > Upload*
+(EXR: 4096 MB, other media: 16384 MB, the same limits as before). The `NUKEMAX_UPLOAD_MAX_MB` environment variable
+still overrides both when it is set. The setting works without CustomNodePacks installed.
